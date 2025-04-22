@@ -1,0 +1,21 @@
+{
+  "visual": {
+    "name": "customTable",
+    "displayName": "CustomTable",
+    "guid": "customTable427C230326C34123ABA9946E85B2E3D2",
+    "visualClassName": "Visual",
+    "version": "1.0.0.0",
+    "description": "Custom Tanstack Table for Power BI",
+    "supportUrl": "https://drweblab.gr",
+    "gitHubUrl": "https://github.com/lproko/customTable"
+  },
+  "apiVersion": "5.3.0",
+  "author": { "name": "lproko", "email": "support@drweblab.gr" },
+  "assets": { "icon": "assets/icon.png" },
+  "externalJS": null,
+  "style": "style/visual.less",
+  "capabilities": "capabilities.json",
+  "dependencies": null,
+  "stringResources": [],
+  "version": "1.0.0.0"
+}
