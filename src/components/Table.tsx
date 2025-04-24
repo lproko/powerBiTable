@@ -355,6 +355,8 @@ export const Table: React.FC<TableProps> = ({
   nestedColumns,
 }) => {
   const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
 
   const toggleRow = (rowId: string) => {
     setExpanded((prev) => ({
@@ -363,76 +365,170 @@ export const Table: React.FC<TableProps> = ({
     }));
   };
 
+  // Calculate pagination
+  const pageCount = Math.ceil(data.length / pageSize);
+  const startIndex = currentPage * pageSize;
+  const endIndex = startIndex + pageSize;
+  const currentData = data.slice(startIndex, endIndex);
+
   return (
-    <div style={{ width: "100%", height: "100%", overflow: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th
-              style={{
-                width: "40px",
-                padding: "12px 8px",
-                border: "1px solid #ddd",
-                backgroundColor: "#f5f5f5",
-              }}
-            />
-            {columns.map((column) => (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
               <th
-                key={column.accessorKey}
                 style={{
+                  width: "40px",
                   padding: "12px 8px",
                   border: "1px solid #ddd",
                   backgroundColor: "#f5f5f5",
-                  textAlign: "left",
                 }}
-              >
-                {column.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, index) => (
-            <React.Fragment key={index}>
-              <tr>
-                <td
+              />
+              {columns.map((column) => (
+                <th
+                  key={column.accessorKey}
                   style={{
                     padding: "12px 8px",
                     border: "1px solid #ddd",
-                    textAlign: "center",
-                    cursor: "pointer",
+                    backgroundColor: "#f5f5f5",
+                    textAlign: "left",
                   }}
-                  onClick={() => toggleRow(index.toString())}
                 >
-                  {expanded[index.toString()] ? "−" : "+"}
-                </td>
-                {columns.map((column) => (
+                  {column.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {currentData.map((row, index) => (
+              <React.Fragment key={startIndex + index}>
+                <tr>
                   <td
-                    key={column.accessorKey}
                     style={{
                       padding: "12px 8px",
                       border: "1px solid #ddd",
+                      textAlign: "center",
+                      cursor: "pointer",
                     }}
+                    onClick={() => toggleRow((startIndex + index).toString())}
                   >
-                    {row[column.accessorKey]}
+                    {expanded[(startIndex + index).toString()] ? "−" : "+"}
                   </td>
-                ))}
-              </tr>
-              {expanded[index.toString()] && (
-                <tr>
-                  <td colSpan={columns.length + 1}>
-                    <NestedTable
-                      rowData={row}
-                      nestedData={nestedData}
-                      nestedColumns={nestedColumns}
-                    />
-                  </td>
+                  {columns.map((column) => (
+                    <td
+                      key={column.accessorKey}
+                      style={{
+                        padding: "12px 8px",
+                        border: "1px solid #ddd",
+                      }}
+                    >
+                      {row[column.accessorKey]}
+                    </td>
+                  ))}
                 </tr>
-              )}
-            </React.Fragment>
-          ))}
-        </tbody>
-      </table>
+                {expanded[(startIndex + index).toString()] && (
+                  <tr>
+                    <td colSpan={columns.length + 1}>
+                      <NestedTable
+                        rowData={row}
+                        nestedData={nestedData}
+                        nestedColumns={nestedColumns}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div
+        style={{
+          padding: "8px",
+          borderTop: "1px solid #ddd",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          backgroundColor: "#f5f5f5",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            onClick={() => setCurrentPage(0)}
+            disabled={currentPage === 0}
+            style={{
+              padding: "4px 8px",
+              border: "1px solid #ddd",
+              borderRadius: "4px",
+              backgroundColor: "white",
+              cursor: currentPage === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            {"<<"}
+          </button>
+          <button
+            onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
+            disabled={currentPage === 0}
+            style={{
+              padding: "4px 8px",
+              border: "1px solid #ddd",
+              borderRadius: "4px",
+              backgroundColor: "white",
+              cursor: currentPage === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            {"<"}
+          </button>
+          <button
+            onClick={() =>
+              setCurrentPage((prev) => Math.min(pageCount - 1, prev + 1))
+            }
+            disabled={currentPage === pageCount - 1}
+            style={{
+              padding: "4px 8px",
+              border: "1px solid #ddd",
+              borderRadius: "4px",
+              backgroundColor: "white",
+              cursor: currentPage === pageCount - 1 ? "not-allowed" : "pointer",
+            }}
+          >
+            {">"}
+          </button>
+          <button
+            onClick={() => setCurrentPage(pageCount - 1)}
+            disabled={currentPage === pageCount - 1}
+            style={{
+              padding: "4px 8px",
+              border: "1px solid #ddd",
+              borderRadius: "4px",
+              backgroundColor: "white",
+              cursor: currentPage === pageCount - 1 ? "not-allowed" : "pointer",
+            }}
+          >
+            {">>"}
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span>
+            Page {currentPage + 1} of {pageCount}
+          </span>
+          <PageSizeDropdown
+            value={pageSize}
+            onChange={(value) => {
+              setPageSize(value);
+              setCurrentPage(0); // Reset to first page when changing page size
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 };

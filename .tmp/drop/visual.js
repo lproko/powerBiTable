@@ -17162,10 +17162,10 @@ const FilterComponent = ({ column, data }) => {
             } })));
 };
 const PageSizeDropdown = ({ value, onChange }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const dropdownRef = useRef(null);
+    const [isOpen, setIsOpen] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(false);
+    const dropdownRef = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(null);
     const options = [10, 20, 30, 40, 50];
-    useEffect(() => {
+    (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current &&
                 !dropdownRef.current.contains(event.target)) {
@@ -17177,8 +17177,8 @@ const PageSizeDropdown = ({ value, onChange }) => {
             document.removeEventListener("mousedown", handleClickOutside);
         };
     }, []);
-    return (React.createElement("div", { ref: dropdownRef, style: { position: "relative", display: "inline-block" } },
-        React.createElement("button", { onClick: () => setIsOpen(!isOpen), style: {
+    return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { ref: dropdownRef, style: { position: "relative", display: "inline-block" } },
+        react__WEBPACK_IMPORTED_MODULE_0__.createElement("button", { onClick: () => setIsOpen(!isOpen), style: {
                 padding: "4px 8px",
                 border: "1px solid #ddd",
                 borderRadius: "4px",
@@ -17190,11 +17190,11 @@ const PageSizeDropdown = ({ value, onChange }) => {
                 alignItems: "center",
                 fontSize: "14px",
             } },
-            React.createElement("span", null,
+            react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", null,
                 "Show ",
                 value),
-            React.createElement("span", { style: { marginLeft: "8px" } }, "\u25BC")),
-        isOpen && (React.createElement("div", { style: {
+            react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", { style: { marginLeft: "8px" } }, "\u25BC")),
+        isOpen && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
                 position: "absolute",
                 bottom: "100%",
                 left: 0,
@@ -17205,7 +17205,7 @@ const PageSizeDropdown = ({ value, onChange }) => {
                 marginBottom: "4px",
                 boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                 zIndex: 1000,
-            } }, options.map((option) => (React.createElement("div", { key: option, onClick: () => {
+            } }, options.map((option) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { key: option, onClick: () => {
                 onChange(option);
                 setIsOpen(false);
             }, style: {
@@ -17257,40 +17257,100 @@ const NestedTable = ({ rowData, nestedData: nestedDataProp, nestedColumns }) => 
 };
 const Table = ({ columns, data, nestedData, nestedColumns, }) => {
     const [expanded, setExpanded] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)({});
+    const [currentPage, setCurrentPage] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(0);
+    const [pageSize, setPageSize] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(10);
     const toggleRow = (rowId) => {
         setExpanded((prev) => (Object.assign(Object.assign({}, prev), { [rowId]: !prev[rowId] })));
     };
-    return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: { width: "100%", height: "100%", overflow: "auto" } },
-        react__WEBPACK_IMPORTED_MODULE_0__.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
-            react__WEBPACK_IMPORTED_MODULE_0__.createElement("thead", null,
-                react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
-                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { style: {
-                            width: "40px",
-                            padding: "12px 8px",
-                            border: "1px solid #ddd",
-                            backgroundColor: "#f5f5f5",
-                        } }),
-                    columns.map((column) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { key: column.accessorKey, style: {
-                            padding: "12px 8px",
-                            border: "1px solid #ddd",
-                            backgroundColor: "#f5f5f5",
-                            textAlign: "left",
-                        } }, column.header))))),
-            react__WEBPACK_IMPORTED_MODULE_0__.createElement("tbody", null, data.map((row, index) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement(react__WEBPACK_IMPORTED_MODULE_0__.Fragment, { key: index },
-                react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
-                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { style: {
-                            padding: "12px 8px",
-                            border: "1px solid #ddd",
-                            textAlign: "center",
-                            cursor: "pointer",
-                        }, onClick: () => toggleRow(index.toString()) }, expanded[index.toString()] ? "−" : "+"),
-                    columns.map((column) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { key: column.accessorKey, style: {
-                            padding: "12px 8px",
-                            border: "1px solid #ddd",
-                        } }, row[column.accessorKey])))),
-                expanded[index.toString()] && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
-                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { colSpan: columns.length + 1 },
-                        react__WEBPACK_IMPORTED_MODULE_0__.createElement(NestedTable, { rowData: row, nestedData: nestedData, nestedColumns: nestedColumns })))))))))));
+    // Calculate pagination
+    const pageCount = Math.ceil(data.length / pageSize);
+    const startIndex = currentPage * pageSize;
+    const endIndex = startIndex + pageSize;
+    const currentData = data.slice(startIndex, endIndex);
+    return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+        } },
+        react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: { flex: 1, overflow: "auto" } },
+            react__WEBPACK_IMPORTED_MODULE_0__.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement("thead", null,
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
+                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { style: {
+                                width: "40px",
+                                padding: "12px 8px",
+                                border: "1px solid #ddd",
+                                backgroundColor: "#f5f5f5",
+                            } }),
+                        columns.map((column) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { key: column.accessorKey, style: {
+                                padding: "12px 8px",
+                                border: "1px solid #ddd",
+                                backgroundColor: "#f5f5f5",
+                                textAlign: "left",
+                            } }, column.header))))),
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement("tbody", null, currentData.map((row, index) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement(react__WEBPACK_IMPORTED_MODULE_0__.Fragment, { key: startIndex + index },
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
+                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { style: {
+                                padding: "12px 8px",
+                                border: "1px solid #ddd",
+                                textAlign: "center",
+                                cursor: "pointer",
+                            }, onClick: () => toggleRow((startIndex + index).toString()) }, expanded[(startIndex + index).toString()] ? "−" : "+"),
+                        columns.map((column) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { key: column.accessorKey, style: {
+                                padding: "12px 8px",
+                                border: "1px solid #ddd",
+                            } }, row[column.accessorKey])))),
+                    expanded[(startIndex + index).toString()] && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
+                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { colSpan: columns.length + 1 },
+                            react__WEBPACK_IMPORTED_MODULE_0__.createElement(NestedTable, { rowData: row, nestedData: nestedData, nestedColumns: nestedColumns })))))))))),
+        react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                padding: "8px",
+                borderTop: "1px solid #ddd",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                backgroundColor: "#f5f5f5",
+            } },
+            react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement("button", { onClick: () => setCurrentPage(0), disabled: currentPage === 0, style: {
+                        padding: "4px 8px",
+                        border: "1px solid #ddd",
+                        borderRadius: "4px",
+                        backgroundColor: "white",
+                        cursor: currentPage === 0 ? "not-allowed" : "pointer",
+                    } }, "<<"),
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement("button", { onClick: () => setCurrentPage((prev) => Math.max(0, prev - 1)), disabled: currentPage === 0, style: {
+                        padding: "4px 8px",
+                        border: "1px solid #ddd",
+                        borderRadius: "4px",
+                        backgroundColor: "white",
+                        cursor: currentPage === 0 ? "not-allowed" : "pointer",
+                    } }, "<"),
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement("button", { onClick: () => setCurrentPage((prev) => Math.min(pageCount - 1, prev + 1)), disabled: currentPage === pageCount - 1, style: {
+                        padding: "4px 8px",
+                        border: "1px solid #ddd",
+                        borderRadius: "4px",
+                        backgroundColor: "white",
+                        cursor: currentPage === pageCount - 1 ? "not-allowed" : "pointer",
+                    } }, ">"),
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement("button", { onClick: () => setCurrentPage(pageCount - 1), disabled: currentPage === pageCount - 1, style: {
+                        padding: "4px 8px",
+                        border: "1px solid #ddd",
+                        borderRadius: "4px",
+                        backgroundColor: "white",
+                        cursor: currentPage === pageCount - 1 ? "not-allowed" : "pointer",
+                    } }, ">>")),
+            react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", null,
+                    "Page ",
+                    currentPage + 1,
+                    " of ",
+                    pageCount),
+                react__WEBPACK_IMPORTED_MODULE_0__.createElement(PageSizeDropdown, { value: pageSize, onChange: (value) => {
+                        setPageSize(value);
+                        setCurrentPage(0); // Reset to first page when changing page size
+                    } })))));
 };
 
 
