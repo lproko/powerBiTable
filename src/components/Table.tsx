@@ -9,8 +9,15 @@ import {
   FilterFn,
   ColumnResizeMode,
   getExpandedRowModel,
-  getGroupedRowModel,
+  RowData,
 } from "@tanstack/react-table";
+
+// Add a type extension for expandable rows
+declare module "@tanstack/react-table" {
+  interface TableMeta<TData extends RowData> {
+    updateData: (rowIndex: number, columnId: string, value: unknown) => void;
+  }
+}
 
 interface TableProps {
   columns: {
@@ -18,6 +25,11 @@ interface TableProps {
     accessorKey: string;
   }[];
   data: any[];
+  nestedData: any[] | ((row: any) => any[]);
+  nestedColumns?: {
+    header: string;
+    accessorKey: string;
+  }[];
 }
 
 // Custom filter functions
@@ -262,230 +274,67 @@ const PageSizeDropdown: React.FC<{
   );
 };
 
-const GroupBySelector: React.FC<{
-  columns: any[];
-  grouping: string[];
-  onGroupingChange: (grouping: string[]) => void;
-}> = ({ columns, grouping, onGroupingChange }) => {
-  return (
-    <div
-      style={{
-        padding: "8px",
-        borderBottom: "1px solid #ddd",
-        backgroundColor: "#f8f9fa",
-        display: "flex",
-        alignItems: "center",
-        gap: "8px",
-      }}
-    >
-      <span style={{ fontSize: "14px", color: "#495057" }}>Group by:</span>
-      <select
-        value={grouping[0] || ""}
-        onChange={(e) => {
-          onGroupingChange(e.target.value ? [e.target.value] : []);
-        }}
-        style={{
-          padding: "6px 8px",
-          border: "1px solid #ced4da",
-          borderRadius: "4px",
-          fontSize: "14px",
-          backgroundColor: "white",
-          color: "#495057",
-          outline: "none",
-          minWidth: "150px",
-        }}
-      >
-        <option value="">No grouping</option>
-        {columns.map((column) => (
-          <option key={column.accessorKey} value={column.accessorKey}>
-            {column.header}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-};
+// Nested table component
+const NestedTable: React.FC<{
+  rowData: any;
+  nestedData: any[] | ((row: any) => any[]);
+  nestedColumns?: {
+    header: string;
+    accessorKey: string;
+  }[];
+}> = ({ rowData, nestedData: nestedDataProp, nestedColumns }) => {
+  console.log("NestedTable Props:", { rowData, nestedDataProp, nestedColumns });
 
-export const Table: React.FC<TableProps> = ({ columns, data }) => {
-  const columnHelper = createColumnHelper<any>();
-  const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
-  const [columnResizeMode] = useState<ColumnResizeMode>("onChange");
-  const [columnSizing, setColumnSizing] = useState({});
-  const [expanded, setExpanded] = useState({});
-  const [grouping, setGrouping] = useState<string[]>([]);
+  // Get the actual nested data
+  const actualNestedData =
+    typeof nestedDataProp === "function"
+      ? nestedDataProp(rowData)
+      : nestedDataProp;
 
-  const tableColumns = columns.map((column) =>
-    columnHelper.accessor(column.accessorKey, {
-      header: column.header,
-      cell: (info) => info.getValue(),
-      filterFn: (row, columnId, filterValue, addMeta) => {
-        const value = row.getValue(columnId);
-        if (typeof value === "number") {
-          return numberFilter(row, columnId, filterValue, addMeta);
-        }
-        return stringFilter(row, columnId, filterValue, addMeta);
-      },
-    })
-  );
+  console.log("Actual nested data:", actualNestedData);
 
-  const table = useReactTable({
-    data,
-    columns: tableColumns,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getExpandedRowModel: getExpandedRowModel(),
-    getGroupedRowModel: getGroupedRowModel(),
-    columnResizeMode,
-    onColumnSizingChange: setColumnSizing,
-    onExpandedChange: setExpanded,
-    onGroupingChange: setGrouping,
-    state: {
-      pagination: {
-        pageIndex,
-        pageSize,
-      },
-      columnSizing,
-      expanded,
-      grouping,
-    },
-    onPaginationChange: (updater) => {
-      if (typeof updater === "function") {
-        const newState = updater({ pageIndex, pageSize });
-        setPageIndex(newState.pageIndex);
-        setPageSize(newState.pageSize);
-      }
-    },
-  });
-
-  return (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <GroupBySelector
-        columns={columns}
-        grouping={grouping}
-        onGroupingChange={setGrouping}
-      />
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            tableLayout: "fixed",
-          }}
-        >
+  // If we have nested columns and data, use them
+  if (nestedColumns && actualNestedData && actualNestedData.length > 0) {
+    return (
+      <div style={{ padding: "16px", backgroundColor: "#f8f9fa" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    style={{
-                      padding: "12px 8px",
-                      border: "1px solid #ddd",
-                      backgroundColor: "#f5f5f5",
-                      textAlign: "left",
-                      position: "relative",
-                      width: header.getSize(),
-                    }}
-                  >
-                    <div
-                      style={{
-                        marginBottom: "8px",
-                        fontWeight: "600",
-                        color: "#212529",
-                        fontSize: "14px",
-                      }}
-                    >
-                      {flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
-                      )}
-                    </div>
-                    <FilterComponent column={header.column} data={data} />
-                    <div
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
-                      style={{
-                        position: "absolute",
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: "5px",
-                        cursor: "col-resize",
-                        userSelect: "none",
-                        touchAction: "none",
-                        backgroundColor: header.column.getIsResizing()
-                          ? "#2196f3"
-                          : "transparent",
-                      }}
-                    />
-                  </th>
-                ))}
-              </tr>
-            ))}
+            <tr>
+              {nestedColumns.map((column) => (
+                <th
+                  key={column.accessorKey}
+                  style={{
+                    padding: "8px",
+                    border: "1px solid #ddd",
+                    backgroundColor: "#e9ecef",
+                    textAlign: "left",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                  }}
+                >
+                  {column.header}
+                </th>
+              ))}
+            </tr>
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
-                {row.getVisibleCells().map((cell) => (
+            {actualNestedData.map((item, index) => (
+              <tr key={index}>
+                {nestedColumns.map((column) => (
                   <td
-                    key={cell.id}
+                    key={column.accessorKey}
                     style={{
-                      padding: "12px 8px",
+                      padding: "8px",
                       border: "1px solid #ddd",
-                      width: cell.column.getSize(),
-                      fontSize: "14px",
-                      color: "#212529",
+                      fontSize: "13px",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
-                      maxWidth: cell.column.getSize(),
-                      backgroundColor: row.getIsGrouped() ? "#f8f9fa" : "white",
+                      maxWidth: "300px",
                     }}
-                    title={String(cell.getValue())}
+                    title={String(item[column.accessorKey])}
                   >
-                    {row.getIsGrouped() ? (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                      >
-                        <button
-                          onClick={row.getToggleExpandedHandler()}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: "0",
-                            cursor: "pointer",
-                            fontSize: "14px",
-                            color: "#495057",
-                            display: "flex",
-                            alignItems: "center",
-                          }}
-                        >
-                          {row.getIsExpanded() ? "▼" : "▶"}
-                        </button>
-                        <span>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                          {` (${row.subRows.length})`}
-                        </span>
-                      </div>
-                    ) : (
-                      flexRender(cell.column.columnDef.cell, cell.getContext())
-                    )}
+                    {item[column.accessorKey]}
                   </td>
                 ))}
               </tr>
@@ -493,81 +342,97 @@ export const Table: React.FC<TableProps> = ({ columns, data }) => {
           </tbody>
         </table>
       </div>
-      <div
-        style={{
-          padding: "8px",
-          borderTop: "1px solid #ddd",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          backgroundColor: "#f5f5f5",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <button
-            onClick={() => table.setPageIndex(0)}
-            disabled={!table.getCanPreviousPage()}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: table.getCanPreviousPage() ? "pointer" : "not-allowed",
-            }}
-          >
-            {"<<"}
-          </button>
-          <button
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: table.getCanPreviousPage() ? "pointer" : "not-allowed",
-            }}
-          >
-            {"<"}
-          </button>
-          <button
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: table.getCanNextPage() ? "pointer" : "not-allowed",
-            }}
-          >
-            {">"}
-          </button>
-          <button
-            onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-            disabled={!table.getCanNextPage()}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: table.getCanNextPage() ? "pointer" : "not-allowed",
-            }}
-          >
-            {">>"}
-          </button>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span>
-            Page {table.getState().pagination.pageIndex + 1} of{" "}
-            {table.getPageCount()}
-          </span>
-          <PageSizeDropdown
-            value={table.getState().pagination.pageSize}
-            onChange={(value) => table.setPageSize(value)}
-          />
-        </div>
-      </div>
+    );
+  }
+
+  return null;
+};
+
+export const Table: React.FC<TableProps> = ({
+  columns,
+  data,
+  nestedData,
+  nestedColumns,
+}) => {
+  const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
+
+  const toggleRow = (rowId: string) => {
+    setExpanded((prev) => ({
+      ...prev,
+      [rowId]: !prev[rowId],
+    }));
+  };
+
+  return (
+    <div style={{ width: "100%", height: "100%", overflow: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th
+              style={{
+                width: "40px",
+                padding: "12px 8px",
+                border: "1px solid #ddd",
+                backgroundColor: "#f5f5f5",
+              }}
+            />
+            {columns.map((column) => (
+              <th
+                key={column.accessorKey}
+                style={{
+                  padding: "12px 8px",
+                  border: "1px solid #ddd",
+                  backgroundColor: "#f5f5f5",
+                  textAlign: "left",
+                }}
+              >
+                {column.header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row, index) => (
+            <React.Fragment key={index}>
+              <tr>
+                <td
+                  style={{
+                    padding: "12px 8px",
+                    border: "1px solid #ddd",
+                    textAlign: "center",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => toggleRow(index.toString())}
+                >
+                  {expanded[index.toString()] ? "−" : "+"}
+                </td>
+                {columns.map((column) => (
+                  <td
+                    key={column.accessorKey}
+                    style={{
+                      padding: "12px 8px",
+                      border: "1px solid #ddd",
+                    }}
+                  >
+                    {row[column.accessorKey]}
+                  </td>
+                ))}
+              </tr>
+              {expanded[index.toString()] && (
+                <tr>
+                  <td colSpan={columns.length + 1}>
+                    <NestedTable
+                      rowData={row}
+                      nestedData={nestedData}
+                      nestedColumns={nestedColumns}
+                    />
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 };

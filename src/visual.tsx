@@ -71,20 +71,95 @@ export class Visual implements IVisual {
       return;
     }
 
-    // Transform Power BI data into table format
-    const columns = dataView.categorical.categories.map((category) => ({
+    // Get categories and separate them into main and nested based on roles
+    const categories = dataView.categorical.categories || [];
+    console.log("All Categories:", categories);
+
+    // Separate categories based on roles
+    const mainCategories = categories.filter(
+      (category) => category.source.roles?.category
+    );
+    const nestedCategories = categories.filter(
+      (category) => category.source.roles?.nested
+    );
+
+    console.log("Main Categories:", mainCategories);
+    console.log("Nested Categories:", nestedCategories);
+
+    // Transform main data
+    const columns = mainCategories.map((category) => ({
       header: category.source.displayName,
       accessorKey: category.source.displayName,
     }));
 
-    const data = this.transformData(dataView);
+    const data = this.transformData(mainCategories);
+
+    // Transform nested data
+    const nestedColumns = nestedCategories.map((category) => ({
+      header: category.source.displayName,
+      accessorKey: category.source.displayName,
+    }));
+
+    // Create a map of parent row identifiers to nested data
+    const nestedDataMap = new Map();
+
+    // Use the first main category (e.g., Pest) as the key for matching
+    const mainKey = mainCategories[0].source.displayName;
+
+    // Create nested data entries
+    mainCategories[0].values.forEach((mainValue, index) => {
+      const nestedRow = {};
+
+      // Add main category values for reference
+      mainCategories.forEach((category) => {
+        nestedRow[category.source.displayName] = category.values[index];
+      });
+
+      // Add nested category values
+      nestedCategories.forEach((category) => {
+        nestedRow[category.source.displayName] = category.values[index];
+      });
+
+      // Use the main value as key to group nested data
+      const key = mainValue.toString();
+      if (!nestedDataMap.has(key)) {
+        nestedDataMap.set(key, []);
+      }
+      nestedDataMap.get(key).push(nestedRow);
+    });
+
+    // Function to get nested data for a row
+    const getNestedDataForRow = (row: any) => {
+      const key = row[mainKey].toString();
+      const nestedData = nestedDataMap.get(key) || [];
+      console.log("Getting nested data for row:", row);
+      console.log("Key:", key);
+      console.log("Found nested data:", nestedData);
+      return nestedData;
+    };
+
+    // Add detailed logging
+    console.log("Main Columns:", columns);
+    console.log("Main Data:", data);
+    console.log("Nested Columns:", nestedColumns);
+    console.log("Nested Data Map:", nestedDataMap);
+    console.log(
+      "Sample nested data for first row:",
+      getNestedDataForRow(data[0])
+    );
 
     // Render the table
-    this.root.render(<Table columns={columns} data={data} />);
+    this.root.render(
+      <Table
+        columns={columns}
+        data={data}
+        nestedData={getNestedDataForRow}
+        nestedColumns={nestedColumns}
+      />
+    );
   }
 
-  private transformData(dataView: powerbi.DataView): any[] {
-    const categories = dataView.categorical.categories;
+  private transformData(categories: powerbi.DataViewCategoryColumn[]): any[] {
     const rows: any[] = [];
 
     if (categories.length === 0) return rows;
