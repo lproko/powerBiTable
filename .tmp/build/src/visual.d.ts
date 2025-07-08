@@ -8,8 +8,10 @@ export declare class Visual implements IVisual {
     private formattingSettings;
     private formattingSettingsService;
     private root;
+    private host;
+    private selectionManager;
     constructor(options: VisualConstructorOptions);
-    update(options: VisualUpdateOptions): void;
+    update(options: VisualUpdateOptions): Promise<void>;
     private transformData;
     getFormattingModel(): powerbi.visuals.FormattingModel;
 }

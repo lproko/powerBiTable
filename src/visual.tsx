@@ -43,10 +43,16 @@ export class Visual implements IVisual {
   private formattingSettings: VisualFormattingSettingsModel;
   private formattingSettingsService: FormattingSettingsService;
   private root: any;
+  private host: powerbi.extensibility.visual.IVisualHost;
+  private selectionManager: powerbi.extensibility.ISelectionManager;
 
   constructor(options: VisualConstructorOptions) {
     this.formattingSettingsService = new FormattingSettingsService();
     this.target = options.element;
+    this.host = options.host;
+
+    // Initialize selection manager
+    this.selectionManager = this.host.createSelectionManager();
 
     // Create a container for React
     const container = document.createElement("div");
@@ -58,7 +64,7 @@ export class Visual implements IVisual {
     this.root = createRoot(container);
   }
 
-  public update(options: VisualUpdateOptions) {
+  public async update(options: VisualUpdateOptions) {
     this.formattingSettings =
       this.formattingSettingsService.populateFormattingSettingsModel(
         VisualFormattingSettingsModel,
@@ -148,6 +154,9 @@ export class Visual implements IVisual {
       getNestedDataForRow(data[0])
     );
 
+    // Get current selections
+    const selections = await this.selectionManager.getSelectionIds();
+
     // Render the table
     this.root.render(
       <Table
@@ -155,6 +164,9 @@ export class Visual implements IVisual {
         data={data}
         nestedData={getNestedDataForRow}
         nestedColumns={nestedColumns}
+        selectionManager={this.selectionManager}
+        dataView={dataView}
+        host={this.host}
       />
     );
   }

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import powerbi from "powerbi-visuals-api";
 import {
   useReactTable,
   getCoreRowModel,
@@ -30,6 +31,9 @@ interface TableProps {
     header: string;
     accessorKey: string;
   }[];
+  selectionManager?: powerbi.extensibility.ISelectionManager;
+  dataView?: powerbi.DataView;
+  host?: powerbi.extensibility.visual.IVisualHost;
 }
 
 // Custom filter functions
@@ -296,51 +300,38 @@ const NestedTable: React.FC<{
   // If we have nested columns and data, use them
   if (nestedColumns && actualNestedData && actualNestedData.length > 0) {
     return (
-      <div style={{ padding: "16px", backgroundColor: "#f8f9fa" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              {nestedColumns.map((column) => (
-                <th
-                  key={column.accessorKey}
+      <div
+        style={{ padding: "24px", backgroundColor: "white", margin: "0 16px" }}
+      >
+        {actualNestedData.map((item, index) => (
+          <div key={index} style={{ marginBottom: "24px" }}>
+            {nestedColumns.map((column) => (
+              <div key={column.accessorKey} style={{ marginBottom: "16px" }}>
+                <div
                   style={{
-                    padding: "8px",
-                    border: "1px solid #ddd",
-                    backgroundColor: "#e9ecef",
-                    textAlign: "left",
-                    fontSize: "13px",
-                    fontWeight: "600",
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                    color: "#495057",
+                    marginBottom: "4px",
+                    fontFamily: "Arial, sans-serif",
                   }}
                 >
-                  {column.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {actualNestedData.map((item, index) => (
-              <tr key={index}>
-                {nestedColumns.map((column) => (
-                  <td
-                    key={column.accessorKey}
-                    style={{
-                      padding: "8px",
-                      border: "1px solid #ddd",
-                      fontSize: "13px",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      maxWidth: "300px",
-                    }}
-                    title={String(item[column.accessorKey])}
-                  >
-                    {item[column.accessorKey]}
-                  </td>
-                ))}
-              </tr>
+                  {column.header}:
+                </div>
+                <div
+                  style={{
+                    fontSize: "14px",
+                    color: "#6c757d",
+                    paddingLeft: "12px",
+                    fontFamily: "Arial, sans-serif",
+                  }}
+                >
+                  {item[column.accessorKey]}
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        ))}
       </div>
     );
   }
@@ -353,10 +344,58 @@ export const Table: React.FC<TableProps> = ({
   data,
   nestedData,
   nestedColumns,
+  selectionManager,
+  dataView,
+  host,
 }) => {
   const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
   const [currentPage, setCurrentPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [searchTerm, setSearchTerm] = useState<string>("");
+
+  // Sync with Power BI selections
+  useEffect(() => {
+    const syncSelections = async () => {
+      if (!selectionManager || !dataView) return;
+
+      const selections = await selectionManager.getSelectionIds();
+      const newSelectedRows = new Set<string>();
+
+      if (selections && selections.length > 0) {
+        const mainCategories =
+          dataView.categorical?.categories?.filter(
+            (category) => category.source.roles?.category
+          ) || [];
+
+        if (mainCategories.length > 0) {
+          const mainCategory = mainCategories[0];
+          mainCategory.values.forEach((value, index) => {
+            const selectionId = host
+              ?.createSelectionIdBuilder()
+              .withCategory(mainCategory, index)
+              .createSelectionId();
+
+            if (
+              selections.some(
+                (sel) => sel.toString() === selectionId.toString()
+              )
+            ) {
+              newSelectedRows.add(index.toString());
+            }
+          });
+        }
+      }
+
+      setSelectedRows(newSelectedRows);
+      setSelectAll(newSelectedRows.size === data.length);
+    };
+
+    syncSelections();
+  }, [selectionManager, dataView, data.length, host]);
 
   const toggleRow = (rowId: string) => {
     setExpanded((prev) => ({
@@ -365,11 +404,109 @@ export const Table: React.FC<TableProps> = ({
     }));
   };
 
+  // Handle row selection
+  const handleRowSelection = async (rowIndex: number, checked: boolean) => {
+    if (!selectionManager || !dataView || !host) return;
+
+    const mainCategories =
+      dataView.categorical?.categories?.filter(
+        (category) => category.source.roles?.category
+      ) || [];
+
+    if (mainCategories.length === 0) return;
+
+    // Create selection ID based on the first main category
+    const mainCategory = mainCategories[0];
+    const value = mainCategory.values[rowIndex];
+
+    const selectionId = host
+      .createSelectionIdBuilder()
+      .withCategory(mainCategory, rowIndex)
+      .createSelectionId();
+
+    if (checked) {
+      await selectionManager.select(selectionId, false);
+    } else {
+      await selectionManager.clear();
+    }
+
+    // Update local state
+    const newSelectedRows = new Set(selectedRows);
+    if (checked) {
+      newSelectedRows.add(rowIndex.toString());
+    } else {
+      newSelectedRows.delete(rowIndex.toString());
+    }
+    setSelectedRows(newSelectedRows);
+  };
+
+  // Handle select all
+  const handleSelectAll = async (checked: boolean) => {
+    if (!selectionManager || !dataView || !host) return;
+
+    if (checked) {
+      const mainCategories =
+        dataView.categorical?.categories?.filter(
+          (category) => category.source.roles?.category
+        ) || [];
+
+      if (mainCategories.length === 0) return;
+
+      const mainCategory = mainCategories[0];
+      const selectionIds = mainCategory.values.map((value, index) =>
+        host
+          .createSelectionIdBuilder()
+          .withCategory(mainCategory, index)
+          .createSelectionId()
+      );
+
+      await selectionManager.select(selectionIds, false);
+      setSelectedRows(new Set(data.map((_, index) => index.toString())));
+    } else {
+      await selectionManager.clear();
+      setSelectedRows(new Set());
+    }
+    setSelectAll(checked);
+  };
+
+  // Handle sorting
+  const handleSort = (columnKey: string) => {
+    if (sortColumn === columnKey) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(columnKey);
+      setSortDirection("asc");
+    }
+    setCurrentPage(0); // Reset to first page when sorting
+  };
+
+  // Filter and sort data
+  const filteredData = searchTerm
+    ? data.filter((row) => {
+        const firstColumnKey = columns[0]?.accessorKey;
+        if (!firstColumnKey) return true;
+        const cellValue = String(row[firstColumnKey]).toLowerCase();
+        return cellValue.includes(searchTerm.toLowerCase());
+      })
+    : data;
+
+  const sortedData = [...filteredData].sort((a, b) => {
+    if (!sortColumn) return 0;
+
+    const aValue = a[sortColumn];
+    const bValue = b[sortColumn];
+
+    if (aValue === bValue) return 0;
+
+    const comparison = aValue < bValue ? -1 : 1;
+    return sortDirection === "asc" ? comparison : -comparison;
+  });
+
   // Calculate pagination
-  const pageCount = Math.ceil(data.length / pageSize);
+  const pageCount = Math.ceil(sortedData.length / pageSize);
   const startIndex = currentPage * pageSize;
   const endIndex = startIndex + pageSize;
-  const currentData = data.slice(startIndex, endIndex);
+  const currentData = sortedData.slice(startIndex, endIndex);
 
   return (
     <div
@@ -381,30 +518,154 @@ export const Table: React.FC<TableProps> = ({
       }}
     >
       <div style={{ flex: 1, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            fontFamily: "Arial, sans-serif",
+          }}
+        >
           <thead>
             <tr>
               <th
                 style={{
                   width: "40px",
                   padding: "12px 8px",
-                  border: "1px solid #ddd",
+                  borderBottom: "1px solid #ddd",
                   backgroundColor: "#f5f5f5",
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  fontFamily: "Arial, sans-serif",
+                  textAlign: "center",
                 }}
-              />
-              {columns.map((column) => (
+              >
+                <input
+                  type="checkbox"
+                  checked={selectAll}
+                  onChange={(e) => handleSelectAll(e.target.checked)}
+                  style={{
+                    cursor: "pointer",
+                  }}
+                />
+              </th>
+              {columns.map((column, index) => (
                 <th
                   key={column.accessorKey}
                   style={{
                     padding: "12px 8px",
-                    border: "1px solid #ddd",
+                    borderBottom: "1px solid #ddd",
                     backgroundColor: "#f5f5f5",
-                    textAlign: "left",
+                    textAlign: "center",
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                    fontFamily: "Arial, sans-serif",
+                    cursor: index === 0 ? "pointer" : "default",
+                    userSelect: "none",
+                    maxWidth: index === 0 ? "400px" : "auto",
+                    width: index === 0 ? "400px" : "auto",
                   }}
+                  onClick={
+                    index === 0
+                      ? () => handleSort(column.accessorKey)
+                      : undefined
+                  }
                 >
-                  {column.header}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      flexDirection: "row",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      {column.header}
+                      {index === 0 && (
+                        <span style={{ fontSize: "12px", color: "#666" }}>
+                          {sortColumn === column.accessorKey
+                            ? sortDirection === "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </span>
+                      )}
+                    </div>
+                    {index === 0 && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        <input
+                          type="text"
+                          value={searchTerm}
+                          onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            setCurrentPage(0);
+                          }}
+                          placeholder="Search..."
+                          style={{
+                            padding: "4px 8px",
+                            border: "1px solid #ddd",
+                            borderRadius: "4px",
+                            fontSize: "12px",
+                            fontFamily: "Arial, sans-serif",
+                            width: "120px",
+                            outline: "none",
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = "#80bdff";
+                            e.target.style.boxShadow =
+                              "0 0 0 0.2rem rgba(0,123,255,.25)";
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = "#ddd";
+                            e.target.style.boxShadow = "none";
+                          }}
+                        />
+                        {searchTerm && (
+                          <button
+                            onClick={() => setSearchTerm("")}
+                            style={{
+                              padding: "2px 6px",
+                              border: "1px solid #ddd",
+                              borderRadius: "3px",
+                              backgroundColor: "white",
+                              cursor: "pointer",
+                              fontSize: "10px",
+                              fontFamily: "Arial, sans-serif",
+                              marginLeft: "4px",
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </th>
               ))}
+              <th
+                style={{
+                  width: "40px",
+                  padding: "12px 8px",
+                  borderBottom: "1px solid #ddd",
+                  backgroundColor: "#f5f5f5",
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  fontFamily: "Arial, sans-serif",
+                  textAlign: "center",
+                }}
+              />
             </tr>
           </thead>
           <tbody>
@@ -414,29 +675,104 @@ export const Table: React.FC<TableProps> = ({
                   <td
                     style={{
                       padding: "12px 8px",
-                      border: "1px solid #ddd",
+                      borderBottom: "1px solid #ddd",
+                      textAlign: "center",
+                      fontSize: "14px",
+                      fontFamily: "Arial, sans-serif",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.has(
+                        (startIndex + index).toString()
+                      )}
+                      onChange={(e) =>
+                        handleRowSelection(startIndex + index, e.target.checked)
+                      }
+                      style={{
+                        cursor: "pointer",
+                      }}
+                    />
+                  </td>
+                  {columns.map((column, columnIndex) => {
+                    const cellValue = row[column.accessorKey];
+                    const isYes = String(cellValue).toLowerCase() === "yes";
+                    const isNo = String(cellValue).toLowerCase() === "no";
+
+                    return (
+                      <td
+                        key={column.accessorKey}
+                        style={{
+                          padding: "12px 8px",
+                          borderBottom: "1px solid #ddd",
+                          textAlign: columnIndex === 0 ? "left" : "center",
+                          fontSize: "14px",
+                          fontFamily: "Arial, sans-serif",
+                          maxWidth: columnIndex === 0 ? "400px" : "auto",
+                          width: columnIndex === 0 ? "400px" : "auto",
+                          wordWrap: columnIndex === 0 ? "break-word" : "normal",
+                          whiteSpace: columnIndex === 0 ? "normal" : "nowrap",
+                          overflow: columnIndex === 0 ? "hidden" : "visible",
+                        }}
+                      >
+                        {columnIndex === 1 ? (
+                          // Second column: show circle icons
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: "12px",
+                                height: "12px",
+                                borderRadius: "50%",
+                                backgroundColor: isYes ? "#000" : "transparent",
+                                border: isNo ? "2px solid #000" : "none",
+                                display: "inline-block",
+                              }}
+                            />
+                          </div>
+                        ) : // Other columns: show Yes/No badges or regular text
+                        isYes || isNo ? (
+                          <span
+                            style={{
+                              backgroundColor: isYes ? "#d4edda" : "#f8d7da",
+                              color: isYes ? "#155724" : "#721c24",
+                              padding: "4px 8px",
+                              borderRadius: "6px",
+                              fontWeight: "500",
+                              display: "inline-block",
+                              fontFamily: "Arial, sans-serif",
+                            }}
+                          >
+                            {cellValue}
+                          </span>
+                        ) : (
+                          cellValue
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td
+                    style={{
+                      padding: "12px 8px",
+                      borderBottom: "1px solid #ddd",
                       textAlign: "center",
                       cursor: "pointer",
+                      fontSize: "16px",
+                      fontFamily: "Arial, sans-serif",
                     }}
                     onClick={() => toggleRow((startIndex + index).toString())}
                   >
-                    {expanded[(startIndex + index).toString()] ? "−" : "+"}
+                    {expanded[(startIndex + index).toString()] ? "⮝" : "⮟"}
                   </td>
-                  {columns.map((column) => (
-                    <td
-                      key={column.accessorKey}
-                      style={{
-                        padding: "12px 8px",
-                        border: "1px solid #ddd",
-                      }}
-                    >
-                      {row[column.accessorKey]}
-                    </td>
-                  ))}
                 </tr>
                 {expanded[(startIndex + index).toString()] && (
                   <tr>
-                    <td colSpan={columns.length + 1}>
+                    <td colSpan={columns.length + 2}>
                       <NestedTable
                         rowData={row}
                         nestedData={nestedData}
