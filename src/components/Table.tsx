@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import powerbi from "powerbi-visuals-api";
+import { IoFilter } from "react-icons/io5";
+import { IoIosArrowUp, IoIosArrowDown } from "react-icons/io";
+import { FaFilterCircleXmark } from "react-icons/fa6";
 import {
   useReactTable,
   getCoreRowModel,
@@ -186,98 +189,6 @@ const FilterComponent: React.FC<{
   );
 };
 
-const PageSizeDropdown: React.FC<{
-  value: number;
-  onChange: (value: number) => void;
-}> = ({ value, onChange }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const options = [10, 20, 30, 40, 50];
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
-  return (
-    <div
-      ref={dropdownRef}
-      style={{ position: "relative", display: "inline-block" }}
-    >
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        style={{
-          padding: "4px 8px",
-          border: "1px solid #ddd",
-          borderRadius: "4px",
-          backgroundColor: "white",
-          width: "100px",
-          cursor: "pointer",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          fontSize: "14px",
-        }}
-      >
-        <span>Show {value}</span>
-        <span style={{ marginLeft: "8px" }}>▼</span>
-      </button>
-      {isOpen && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "100%",
-            left: 0,
-            right: 0,
-            backgroundColor: "white",
-            border: "1px solid #ddd",
-            borderRadius: "4px",
-            marginBottom: "4px",
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-            zIndex: 1000,
-          }}
-        >
-          {options.map((option) => (
-            <div
-              key={option}
-              onClick={() => {
-                onChange(option);
-                setIsOpen(false);
-              }}
-              style={{
-                padding: "8px",
-                cursor: "pointer",
-                backgroundColor: option === value ? "#f5f5f5" : "white",
-                fontSize: "14px",
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.backgroundColor = "#f5f5f5";
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.backgroundColor =
-                  option === value ? "#f5f5f5" : "white";
-              }}
-            >
-              Show {option}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // Nested table component
 const NestedTable: React.FC<{
   rowData: any;
@@ -349,13 +260,46 @@ export const Table: React.FC<TableProps> = ({
   host,
 }) => {
   const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
-  const [currentPage, setCurrentPage] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
+  const [visibleRows, setVisibleRows] = useState(20);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [searchType, setSearchType] = useState<"contains" | "equal">(
+    "contains"
+  );
+  const [showSearchMenu, setShowSearchMenu] = useState(false);
+  const [showOperatorDropdown, setShowOperatorDropdown] = useState(false);
+  const searchMenuRef = useRef<HTMLDivElement>(null);
+  const operatorDropdownRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  // Close search menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchMenuRef.current &&
+        !searchMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowSearchMenu(false);
+      }
+      if (
+        operatorDropdownRef.current &&
+        !operatorDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowOperatorDropdown(false);
+      }
+    };
+
+    if (showSearchMenu || showOperatorDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showSearchMenu, showOperatorDropdown]);
 
   // Sync with Power BI selections
   useEffect(() => {
@@ -477,7 +421,7 @@ export const Table: React.FC<TableProps> = ({
       setSortColumn(columnKey);
       setSortDirection("asc");
     }
-    setCurrentPage(0); // Reset to first page when sorting
+    setVisibleRows(20); // Reset visible rows when sorting
   };
 
   // Filter and sort data
@@ -486,7 +430,13 @@ export const Table: React.FC<TableProps> = ({
         const firstColumnKey = columns[0]?.accessorKey;
         if (!firstColumnKey) return true;
         const cellValue = String(row[firstColumnKey]).toLowerCase();
-        return cellValue.includes(searchTerm.toLowerCase());
+        const searchValue = searchTerm.toLowerCase();
+
+        if (searchType === "contains") {
+          return cellValue.includes(searchValue);
+        } else {
+          return cellValue === searchValue;
+        }
       })
     : data;
 
@@ -502,11 +452,25 @@ export const Table: React.FC<TableProps> = ({
     return sortDirection === "asc" ? comparison : -comparison;
   });
 
-  // Calculate pagination
-  const pageCount = Math.ceil(sortedData.length / pageSize);
-  const startIndex = currentPage * pageSize;
-  const endIndex = startIndex + pageSize;
-  const currentData = sortedData.slice(startIndex, endIndex);
+  // Get visible data for infinite scroll
+  const currentData = sortedData.slice(0, visibleRows);
+
+  // Create mapping from filtered data back to original data indices
+  const getOriginalDataIndex = (filteredIndex: number) => {
+    const originalIndex = data.findIndex(
+      (item) => item === sortedData[filteredIndex]
+    );
+    return originalIndex;
+  };
+
+  // Infinite scroll handler
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight + 100) {
+      // Load more rows when user is near the bottom
+      setVisibleRows((prev) => Math.min(prev + 20, sortedData.length));
+    }
+  };
 
   return (
     <div
@@ -517,36 +481,41 @@ export const Table: React.FC<TableProps> = ({
         flexDirection: "column",
       }}
     >
-      <div style={{ flex: 1, overflow: "auto" }}>
+      <div
+        ref={tableRef}
+        style={{ flex: 1, overflow: "auto" }}
+        onScroll={handleScroll}
+      >
         <table
           style={{
             width: "100%",
             borderCollapse: "collapse",
             fontFamily: "Arial, sans-serif",
+            position: "relative",
           }}
         >
-          <thead>
+          <thead
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              backgroundColor: "#F6F6F6",
+            }}
+          >
             <tr>
               <th
                 style={{
                   width: "40px",
                   padding: "12px 8px",
                   borderBottom: "1px solid #ddd",
-                  backgroundColor: "#f5f5f5",
+                  backgroundColor: "#F6F6F6",
                   fontSize: "14px",
                   fontWeight: "bold",
                   fontFamily: "Arial, sans-serif",
                   textAlign: "center",
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={selectAll}
-                  onChange={(e) => handleSelectAll(e.target.checked)}
-                  style={{
-                    cursor: "pointer",
-                  }}
-                />
+                {/* Individual row selection column - no select all */}
               </th>
               {columns.map((column, index) => (
                 <th
@@ -554,8 +523,8 @@ export const Table: React.FC<TableProps> = ({
                   style={{
                     padding: "12px 8px",
                     borderBottom: "1px solid #ddd",
-                    backgroundColor: "#f5f5f5",
-                    textAlign: "center",
+                    backgroundColor: "#F6F6F6",
+                    textAlign: index === 0 ? "left" : "center",
                     fontSize: "14px",
                     fontWeight: "bold",
                     fontFamily: "Arial, sans-serif",
@@ -574,8 +543,8 @@ export const Table: React.FC<TableProps> = ({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      gap: "8px",
+                      justifyContent: index === 0 ? "space-between" : "center",
+                      width: "100%",
                       flexDirection: "row",
                     }}
                   >
@@ -603,51 +572,253 @@ export const Table: React.FC<TableProps> = ({
                           display: "flex",
                           alignItems: "center",
                           gap: "4px",
+                          position: "relative",
                         }}
                       >
-                        <input
-                          type="text"
-                          value={searchTerm}
-                          onChange={(e) => {
-                            setSearchTerm(e.target.value);
-                            setCurrentPage(0);
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowSearchMenu(!showSearchMenu);
                           }}
-                          placeholder="Search..."
                           style={{
-                            padding: "4px 8px",
-                            border: "1px solid #ddd",
-                            borderRadius: "4px",
-                            fontSize: "12px",
-                            fontFamily: "Arial, sans-serif",
-                            width: "120px",
-                            outline: "none",
+                            paddingTop: "4px",
+                            fontSize: "18px",
+                            border: "none",
+                            backgroundColor: "transparent",
+                            cursor: "pointer",
                           }}
-                          onFocus={(e) => {
-                            e.target.style.borderColor = "#80bdff";
-                            e.target.style.boxShadow =
-                              "0 0 0 0.2rem rgba(0,123,255,.25)";
-                          }}
-                          onBlur={(e) => {
-                            e.target.style.borderColor = "#ddd";
-                            e.target.style.boxShadow = "none";
-                          }}
-                        />
-                        {searchTerm && (
-                          <button
-                            onClick={() => setSearchTerm("")}
+                        >
+                          {searchTerm ? <FaFilterCircleXmark /> : <IoFilter />}
+                        </button>
+                        {showSearchMenu && (
+                          <div
+                            ref={searchMenuRef}
+                            onClick={(e) => e.stopPropagation()}
                             style={{
-                              padding: "2px 6px",
-                              border: "1px solid #ddd",
-                              borderRadius: "3px",
+                              position: "absolute",
+                              top: "100%",
+                              right: "-60px",
                               backgroundColor: "white",
-                              cursor: "pointer",
-                              fontSize: "10px",
-                              fontFamily: "Arial, sans-serif",
-                              marginLeft: "4px",
+                              border: "1px solid #e0e0e0",
+                              borderRadius: "8px",
+                              padding: "20px",
+                              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                              zIndex: 10000,
+                              minWidth: "320px",
+                              fontFamily: "Roboto, Arial, sans-serif",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "20px",
                             }}
                           >
-                            ×
-                          </button>
+                            {/* Filter Controls - Operator and Value side by side */}
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "16px",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {/* Operator Selection */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "4px",
+                                  flex: 1,
+                                  position: "relative",
+                                }}
+                              >
+                                <label
+                                  style={{
+                                    fontSize: "14px",
+                                    fontWeight: "500",
+                                    color: "#666",
+                                    display: "block",
+                                    marginBottom: "6px",
+                                  }}
+                                >
+                                  Operator
+                                </label>
+                                <div
+                                  style={{
+                                    position: "relative",
+                                    borderBottom: "1px solid #e0e0e0",
+                                    paddingBottom: "4px",
+                                  }}
+                                >
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowOperatorDropdown(
+                                        !showOperatorDropdown
+                                      );
+                                    }}
+                                    style={{
+                                      width: "100%",
+                                      padding: "10px 0",
+                                      border: "none",
+                                      fontSize: "16px",
+                                      backgroundColor: "transparent",
+                                      outline: "none",
+                                      cursor: "pointer",
+                                      textAlign: "left",
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <span>{searchType}</span>
+                                    <svg
+                                      style={{
+                                        width: "16",
+                                        height: "16",
+                                        transform: showOperatorDropdown
+                                          ? "rotate(180deg)"
+                                          : "rotate(0deg)",
+                                        transition: "transform 0.2s",
+                                      }}
+                                      viewBox="0 0 24 24"
+                                      fill="currentColor"
+                                    >
+                                      <path d="M7 10l5 5 5-5z" />
+                                    </svg>
+                                  </button>
+                                  {showOperatorDropdown && (
+                                    <div
+                                      ref={operatorDropdownRef}
+                                      style={{
+                                        position: "absolute",
+                                        top: "100%",
+                                        left: 0,
+                                        right: 0,
+                                        backgroundColor: "white",
+                                        border: "1px solid #e0e0e0",
+                                        borderRadius: "4px",
+                                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                                        zIndex: 10001,
+                                        marginTop: "4px",
+                                      }}
+                                    >
+                                      <div
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSearchType("contains");
+                                          setShowOperatorDropdown(false);
+                                        }}
+                                        style={{
+                                          padding: "10px 14px",
+                                          cursor: "pointer",
+                                          textAlign: "left",
+                                          backgroundColor:
+                                            searchType === "contains"
+                                              ? "#f5f5f5"
+                                              : "white",
+                                          fontSize: "16px",
+                                        }}
+                                        onMouseOver={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            "#f5f5f5";
+                                        }}
+                                        onMouseOut={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            searchType === "contains"
+                                              ? "#f5f5f5"
+                                              : "white";
+                                        }}
+                                      >
+                                        contains
+                                      </div>
+                                      <div
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSearchType("equal");
+                                          setShowOperatorDropdown(false);
+                                        }}
+                                        style={{
+                                          padding: "10px 14px",
+                                          cursor: "pointer",
+                                          backgroundColor:
+                                            searchType === "equal"
+                                              ? "#f5f5f5"
+                                              : "white",
+                                          fontSize: "16px",
+                                        }}
+                                        onMouseOver={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            "#f5f5f5";
+                                        }}
+                                        onMouseOut={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            searchType === "equal"
+                                              ? "#f5f5f5"
+                                              : "white";
+                                        }}
+                                      >
+                                        equals
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Value Input */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "4px",
+                                  flex: 2,
+                                }}
+                              >
+                                <label
+                                  style={{
+                                    fontSize: "14px",
+                                    fontWeight: "500",
+                                    color: "#666",
+                                    display: "block",
+                                    marginBottom: "6px",
+                                  }}
+                                >
+                                  Value
+                                </label>
+                                <div
+                                  style={{
+                                    position: "relative",
+                                    borderBottom: "1px solid #e0e0e0",
+                                    paddingBottom: "4px",
+                                  }}
+                                >
+                                  <input
+                                    type="text"
+                                    value={searchTerm}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      setSearchTerm(e.target.value);
+                                      setVisibleRows(20);
+                                    }}
+                                    placeholder="Filter value"
+                                    style={{
+                                      width: "100%",
+                                      padding: "10px 0",
+                                      border: "none",
+                                      fontSize: "16px",
+                                      backgroundColor: "transparent",
+                                      outline: "none",
+                                    }}
+                                    onFocus={(e) => {
+                                      e.target.parentElement!.style.borderBottomColor =
+                                        "#1976d2";
+                                    }}
+                                    onBlur={(e) => {
+                                      e.target.parentElement!.style.borderBottomColor =
+                                        "#e0e0e0";
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         )}
                       </div>
                     )}
@@ -659,7 +830,7 @@ export const Table: React.FC<TableProps> = ({
                   width: "40px",
                   padding: "12px 8px",
                   borderBottom: "1px solid #ddd",
-                  backgroundColor: "#f5f5f5",
+                  backgroundColor: "#F6F6F6",
                   fontSize: "14px",
                   fontWeight: "bold",
                   fontFamily: "Arial, sans-serif",
@@ -670,7 +841,7 @@ export const Table: React.FC<TableProps> = ({
           </thead>
           <tbody>
             {currentData.map((row, index) => (
-              <React.Fragment key={startIndex + index}>
+              <React.Fragment key={getOriginalDataIndex(index)}>
                 <tr>
                   <td
                     style={{
@@ -684,10 +855,13 @@ export const Table: React.FC<TableProps> = ({
                     <input
                       type="checkbox"
                       checked={selectedRows.has(
-                        (startIndex + index).toString()
+                        getOriginalDataIndex(index).toString()
                       )}
                       onChange={(e) =>
-                        handleRowSelection(startIndex + index, e.target.checked)
+                        handleRowSelection(
+                          getOriginalDataIndex(index),
+                          e.target.checked
+                        )
                       }
                       style={{
                         cursor: "pointer",
@@ -739,8 +913,8 @@ export const Table: React.FC<TableProps> = ({
                         isYes || isNo ? (
                           <span
                             style={{
-                              backgroundColor: isYes ? "#d4edda" : "#f8d7da",
-                              color: isYes ? "#155724" : "#721c24",
+                              backgroundColor: isYes ? "#D4F8D3" : "#FFEABD",
+                              color: "#222222",
                               padding: "4px 8px",
                               borderRadius: "6px",
                               fontWeight: "500",
@@ -765,12 +939,18 @@ export const Table: React.FC<TableProps> = ({
                       fontSize: "16px",
                       fontFamily: "Arial, sans-serif",
                     }}
-                    onClick={() => toggleRow((startIndex + index).toString())}
+                    onClick={() =>
+                      toggleRow(getOriginalDataIndex(index).toString())
+                    }
                   >
-                    {expanded[(startIndex + index).toString()] ? "⮝" : "⮟"}
+                    {expanded[getOriginalDataIndex(index).toString()] ? (
+                      <IoIosArrowUp />
+                    ) : (
+                      <IoIosArrowDown />
+                    )}
                   </td>
                 </tr>
-                {expanded[(startIndex + index).toString()] && (
+                {expanded[getOriginalDataIndex(index).toString()] && (
                   <tr>
                     <td colSpan={columns.length + 2}>
                       <NestedTable
@@ -785,85 +965,6 @@ export const Table: React.FC<TableProps> = ({
             ))}
           </tbody>
         </table>
-      </div>
-      <div
-        style={{
-          padding: "8px",
-          borderTop: "1px solid #ddd",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          backgroundColor: "#f5f5f5",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <button
-            onClick={() => setCurrentPage(0)}
-            disabled={currentPage === 0}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: currentPage === 0 ? "not-allowed" : "pointer",
-            }}
-          >
-            {"<<"}
-          </button>
-          <button
-            onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
-            disabled={currentPage === 0}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: currentPage === 0 ? "not-allowed" : "pointer",
-            }}
-          >
-            {"<"}
-          </button>
-          <button
-            onClick={() =>
-              setCurrentPage((prev) => Math.min(pageCount - 1, prev + 1))
-            }
-            disabled={currentPage === pageCount - 1}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: currentPage === pageCount - 1 ? "not-allowed" : "pointer",
-            }}
-          >
-            {">"}
-          </button>
-          <button
-            onClick={() => setCurrentPage(pageCount - 1)}
-            disabled={currentPage === pageCount - 1}
-            style={{
-              padding: "4px 8px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              cursor: currentPage === pageCount - 1 ? "not-allowed" : "pointer",
-            }}
-          >
-            {">>"}
-          </button>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span>
-            Page {currentPage + 1} of {pageCount}
-          </span>
-          <PageSizeDropdown
-            value={pageSize}
-            onChange={(value) => {
-              setPageSize(value);
-              setCurrentPage(0); // Reset to first page when changing page size
-            }}
-          />
-        </div>
       </div>
     </div>
   );
