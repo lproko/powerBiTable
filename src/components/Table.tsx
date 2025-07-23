@@ -198,15 +198,11 @@ const NestedTable: React.FC<{
     accessorKey: string;
   }[];
 }> = ({ rowData, nestedData: nestedDataProp, nestedColumns }) => {
-  console.log("NestedTable Props:", { rowData, nestedDataProp, nestedColumns });
-
   // Get the actual nested data
   const actualNestedData =
     typeof nestedDataProp === "function"
       ? nestedDataProp(rowData)
       : nestedDataProp;
-
-  console.log("Actual nested data:", actualNestedData);
 
   // If we have nested columns and data, use them
   if (nestedColumns && actualNestedData && actualNestedData.length > 0) {
@@ -262,7 +258,7 @@ export const Table: React.FC<TableProps> = ({
   const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
   const [visibleRows, setVisibleRows] = useState(20);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [selectAll, setSelectAll] = useState(false);
+  const [isUserSelecting, setIsUserSelecting] = useState(false);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -304,12 +300,20 @@ export const Table: React.FC<TableProps> = ({
   // Sync with Power BI selections
   useEffect(() => {
     const syncSelections = async () => {
-      if (!selectionManager || !dataView) return;
+      if (!selectionManager || !dataView || isUserSelecting) {
+        return;
+      }
 
       const selections = await selectionManager.getSelectionIds();
-      const newSelectedRows = new Set<string>();
 
-      if (selections && selections.length > 0) {
+      // Only sync if there are actual Power BI selections and not too many
+      // OR if there are no selections (to allow clearing)
+      if (
+        selections &&
+        selections.length > 0 &&
+        selections.length < data.length * 0.5
+      ) {
+        const newSelectedRows = new Set<string>();
         const mainCategories =
           dataView.categorical?.categories?.filter(
             (category) => category.source.roles?.category
@@ -317,7 +321,7 @@ export const Table: React.FC<TableProps> = ({
 
         if (mainCategories.length > 0) {
           const mainCategory = mainCategories[0];
-          mainCategory.values.forEach((value, index) => {
+          data.forEach((row, index) => {
             const selectionId = host
               ?.createSelectionIdBuilder()
               .withCategory(mainCategory, index)
@@ -328,18 +332,31 @@ export const Table: React.FC<TableProps> = ({
                 (sel) => sel.toString() === selectionId.toString()
               )
             ) {
-              newSelectedRows.add(index.toString());
+              newSelectedRows.add(getRowIdentifier(row));
             }
           });
         }
-      }
 
-      setSelectedRows(newSelectedRows);
-      setSelectAll(newSelectedRows.size === data.length);
+        // Don't sync if Power BI thinks most/all rows are selected (likely incorrect)
+        if (newSelectedRows.size >= data.length * 0.9 && data.length > 1) {
+          return;
+        }
+
+        setSelectedRows(newSelectedRows);
+      } else if (
+        selections &&
+        selections.length === 0 &&
+        selectedRows.size > 0
+      ) {
+        // Power BI has no selections but we have local selections - clear local
+        setSelectedRows(new Set());
+      }
+      // Don't clear selections if there are no Power BI selections and we have none locally
+      // This prevents the sync from clearing our local selections unnecessarily
     };
 
     syncSelections();
-  }, [selectionManager, dataView, data.length, host]);
+  }, [selectionManager, dataView, host]); // Removed data.length dependency
 
   const toggleRow = (rowId: string) => {
     setExpanded((prev) => ({
@@ -349,68 +366,63 @@ export const Table: React.FC<TableProps> = ({
   };
 
   // Handle row selection
-  const handleRowSelection = async (rowIndex: number, checked: boolean) => {
-    if (!selectionManager || !dataView || !host) return;
+  const handleRowSelection = async (row: any, checked: boolean) => {
+    // Set flag to prevent sync interference
+    setIsUserSelecting(true);
 
-    const mainCategories =
-      dataView.categorical?.categories?.filter(
-        (category) => category.source.roles?.category
-      ) || [];
-
-    if (mainCategories.length === 0) return;
-
-    // Create selection ID based on the first main category
-    const mainCategory = mainCategories[0];
-    const value = mainCategory.values[rowIndex];
-
-    const selectionId = host
-      .createSelectionIdBuilder()
-      .withCategory(mainCategory, rowIndex)
-      .createSelectionId();
-
-    if (checked) {
-      await selectionManager.select(selectionId, false);
-    } else {
-      await selectionManager.clear();
-    }
-
-    // Update local state
+    // Update local state first
+    const rowId = getRowIdentifier(row);
     const newSelectedRows = new Set(selectedRows);
     if (checked) {
-      newSelectedRows.add(rowIndex.toString());
+      newSelectedRows.add(rowId);
     } else {
-      newSelectedRows.delete(rowIndex.toString());
+      newSelectedRows.delete(rowId);
     }
+
     setSelectedRows(newSelectedRows);
-  };
 
-  // Handle select all
-  const handleSelectAll = async (checked: boolean) => {
-    if (!selectionManager || !dataView || !host) return;
+    // Sync with Power BI immediately after state update
+    setTimeout(async () => {
+      if (selectionManager && dataView && host) {
+        const mainCategories =
+          dataView.categorical?.categories?.filter(
+            (category) => category.source.roles?.category
+          ) || [];
 
-    if (checked) {
-      const mainCategories =
-        dataView.categorical?.categories?.filter(
-          (category) => category.source.roles?.category
-        ) || [];
+        if (mainCategories.length > 0) {
+          const mainCategory = mainCategories[0];
+          const currentSelections = Array.from(newSelectedRows); // Use the new state
 
-      if (mainCategories.length === 0) return;
+          if (currentSelections.length > 0) {
+            // Create selection IDs for all currently selected rows
+            const selectionIds = currentSelections
+              .map((rowId) => {
+                const row = data.find((r) => getRowIdentifier(r) === rowId);
+                if (row) {
+                  const originalIndex = getOriginalDataIndex(row);
+                  return host
+                    .createSelectionIdBuilder()
+                    .withCategory(mainCategory, originalIndex)
+                    .createSelectionId();
+                }
+                return null;
+              })
+              .filter((id) => id !== null);
 
-      const mainCategory = mainCategories[0];
-      const selectionIds = mainCategory.values.map((value, index) =>
-        host
-          .createSelectionIdBuilder()
-          .withCategory(mainCategory, index)
-          .createSelectionId()
-      );
+            if (selectionIds.length > 0) {
+              await selectionManager.select(selectionIds, false);
+            }
+          } else {
+            await selectionManager.clear();
+          }
+        }
+      }
+    }, 100); // Small delay to ensure state is updated
 
-      await selectionManager.select(selectionIds, false);
-      setSelectedRows(new Set(data.map((_, index) => index.toString())));
-    } else {
-      await selectionManager.clear();
-      setSelectedRows(new Set());
-    }
-    setSelectAll(checked);
+    // Reset the user selecting flag after a longer delay to cover scrolling
+    setTimeout(() => {
+      setIsUserSelecting(false);
+    }, 500);
   };
 
   // Handle sorting
@@ -455,12 +467,40 @@ export const Table: React.FC<TableProps> = ({
   // Get visible data for infinite scroll
   const currentData = sortedData.slice(0, visibleRows);
 
-  // Create mapping from filtered data back to original data indices
-  const getOriginalDataIndex = (filteredIndex: number) => {
-    const originalIndex = data.findIndex(
-      (item) => item === sortedData[filteredIndex]
-    );
-    return originalIndex;
+  // Clear selections when data changes completely (different dataset)
+  useEffect(() => {
+    if (data.length > 0) {
+      const firstRowId = getRowIdentifier(data[0]);
+      const hasMatchingSelections = Array.from(selectedRows).some(
+        (selectedId) => data.some((row) => getRowIdentifier(row) === selectedId)
+      );
+
+      // If none of the current selections match the new data, clear all selections
+      if (selectedRows.size > 0 && !hasMatchingSelections) {
+        setSelectedRows(new Set());
+
+        // Also clear Power BI selections when data changes completely
+        if (selectionManager) {
+          selectionManager.clear();
+        }
+      }
+    }
+  }, [data, selectedRows]);
+
+  // Create a stable identifier for each row using the first column value
+  const getRowIdentifier = (row: any) => {
+    const firstColumnKey = columns[0]?.accessorKey;
+    if (firstColumnKey && row[firstColumnKey]) {
+      return String(row[firstColumnKey]);
+    }
+    // Fallback: use all column values
+    return columns.map((col) => String(row[col.accessorKey] || "")).join("|");
+  };
+
+  // Get original data index by finding the row in the original data
+  const getOriginalDataIndex = (row: any) => {
+    const index = data.findIndex((item) => item === row);
+    return index;
   };
 
   // Infinite scroll handler
@@ -841,7 +881,7 @@ export const Table: React.FC<TableProps> = ({
           </thead>
           <tbody>
             {currentData.map((row, index) => (
-              <React.Fragment key={getOriginalDataIndex(index)}>
+              <React.Fragment key={index}>
                 <tr>
                   <td
                     style={{
@@ -854,17 +894,15 @@ export const Table: React.FC<TableProps> = ({
                   >
                     <input
                       type="checkbox"
-                      checked={selectedRows.has(
-                        getOriginalDataIndex(index).toString()
-                      )}
-                      onChange={(e) =>
-                        handleRowSelection(
-                          getOriginalDataIndex(index),
-                          e.target.checked
-                        )
-                      }
+                      checked={selectedRows.has(getRowIdentifier(row))}
+                      onChange={(e) => {
+                        handleRowSelection(row, e.target.checked);
+                      }}
                       style={{
                         cursor: "pointer",
+                        accentColor: "#22294d",
+                        width: "16px",
+                        height: "16px",
                       }}
                     />
                   </td>
@@ -940,17 +978,17 @@ export const Table: React.FC<TableProps> = ({
                       fontFamily: "Arial, sans-serif",
                     }}
                     onClick={() =>
-                      toggleRow(getOriginalDataIndex(index).toString())
+                      toggleRow(getOriginalDataIndex(row).toString())
                     }
                   >
-                    {expanded[getOriginalDataIndex(index).toString()] ? (
+                    {expanded[getOriginalDataIndex(row).toString()] ? (
                       <IoIosArrowUp />
                     ) : (
                       <IoIosArrowDown />
                     )}
                   </td>
                 </tr>
-                {expanded[getOriginalDataIndex(index).toString()] && (
+                {expanded[getOriginalDataIndex(row).toString()] && (
                   <tr>
                     <td colSpan={columns.length + 2}>
                       <NestedTable
