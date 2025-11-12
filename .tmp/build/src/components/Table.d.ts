@@ -1,4 +1,5 @@
 import React from "react";
+import powerbi from "powerbi-visuals-api";
 import { RowData } from "@tanstack/react-table";
 declare module "@tanstack/react-table" {
     interface TableMeta<TData extends RowData> {
@@ -16,6 +17,9 @@ interface TableProps {
         header: string;
         accessorKey: string;
     }[];
+    selectionManager?: powerbi.extensibility.ISelectionManager;
+    dataView?: powerbi.DataView;
+    host?: powerbi.extensibility.visual.IVisualHost;
 }
 export declare const Table: React.FC<TableProps>;
 export {};
