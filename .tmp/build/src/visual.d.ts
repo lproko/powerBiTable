@@ -10,6 +10,8 @@ export declare class Visual implements IVisual {
     private root;
     private host;
     private selectionManager;
+    private previousDataLength;
+    private lastFixAttemptTime;
     constructor(options: VisualConstructorOptions);
     update(options: VisualUpdateOptions): Promise<void>;
     private transformData;

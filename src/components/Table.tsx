@@ -271,6 +271,28 @@ export const Table: React.FC<TableProps> = ({
   const operatorDropdownRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
+  // Guard: if the first column title is empty, show an error and do not render the table
+  const firstColumnHeader = columns?.[0]?.header;
+  const isFirstColumnTitleEmpty =
+    firstColumnHeader === undefined || String(firstColumnHeader).trim() === "";
+  if (isFirstColumnTitleEmpty) {
+    return (
+      <div
+        style={{
+          padding: "16px",
+          color: "#721c24",
+          backgroundColor: "#f8d7da",
+          border: "1px solid #f5c6cb",
+          borderRadius: "4px",
+          fontFamily: "Arial, sans-serif",
+        }}
+      >
+        The first column title is required. Please provide a title to display
+        the table.
+      </div>
+    );
+  }
+
   // Close search menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

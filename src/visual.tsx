@@ -45,6 +45,8 @@ export class Visual implements IVisual {
   private root: any;
   private host: powerbi.extensibility.visual.IVisualHost;
   private selectionManager: powerbi.extensibility.ISelectionManager;
+  private previousDataLength: number = 0;
+  private lastFixAttemptTime: number = 0;
 
   constructor(options: VisualConstructorOptions) {
     this.formattingSettingsService = new FormattingSettingsService();
@@ -72,14 +74,21 @@ export class Visual implements IVisual {
       );
 
     // Get data from Power BI
-    const dataView = options.dataViews[0];
+    // Check if multiple dataViews are available (sometimes Power BI provides filtered and unfiltered)
+    let dataView = options.dataViews[0];
+
+    // If we have multiple dataViews, log them for debugging
+    if (options.dataViews && options.dataViews.length > 1) {
+      // Use the first dataView (typically the full/unfiltered one if available)
+      dataView = options.dataViews[0];
+    }
+
     if (!dataView || !dataView.categorical) {
       return;
     }
 
     // Get categories and separate them into main and nested based on roles
     const categories = dataView.categorical.categories || [];
-    console.log("All Categories:", categories);
 
     // Separate categories based on roles
     const mainCategories = categories.filter(
@@ -89,8 +98,52 @@ export class Visual implements IVisual {
       (category) => category.source.roles?.nested
     );
 
-    console.log("Main Categories:", mainCategories);
-    console.log("Nested Categories:", nestedCategories);
+    // Validate that we have data - if main categories exist but have suspiciously few values,
+    // it might indicate a filtered context issue
+    if (mainCategories.length > 0) {
+      const firstMainCategory = mainCategories[0];
+      const valueCount = firstMainCategory.values?.length || 0;
+
+      // If we only have 1 row when we should have more, this might be a filtered dataView issue
+      // Check if all categories have the same count (they should)
+      const allCategoryCounts = mainCategories.map(
+        (cat) => cat.values?.length || 0
+      );
+      const allCountsMatch = allCategoryCounts.every(
+        (count) => count === valueCount
+      );
+
+      if (valueCount === 1 && mainCategories.length > 0) {
+        console.warn(
+          "Only 1 row detected - this might indicate a filtered dataView. All category counts:",
+          allCategoryCounts
+        );
+      }
+    }
+
+    // Ensure the first column title exists; otherwise, render an error and skip
+    const firstMainCategoryDisplayName = mainCategories[0]?.source?.displayName;
+    if (
+      firstMainCategoryDisplayName === undefined ||
+      String(firstMainCategoryDisplayName).trim() === ""
+    ) {
+      this.root.render(
+        <div
+          style={{
+            padding: "16px",
+            color: "#721c24",
+            backgroundColor: "#f8d7da",
+            border: "1px solid #f5c6cb",
+            borderRadius: "4px",
+            fontFamily: "Arial, sans-serif",
+          }}
+        >
+          The first column title is required. Please provide a title to display
+          the table.
+        </div>
+      );
+      return;
+    }
 
     // Transform main data
     const columns = mainCategories.map((category) => ({
@@ -98,7 +151,74 @@ export class Visual implements IVisual {
       accessorKey: category.source.displayName,
     }));
 
+    // Secondary guard: if columns are missing or first column title is empty, show error and exit
+    if (
+      columns.length === 0 ||
+      columns[0] === undefined ||
+      String(columns[0].header ?? "").trim() === ""
+    ) {
+      this.root.render(
+        <div
+          style={{
+            padding: "16px",
+            color: "#721c24",
+            backgroundColor: "#f8d7da",
+            border: "1px solid #f5c6cb",
+            borderRadius: "4px",
+            fontFamily: "Arial, sans-serif",
+          }}
+        >
+          The first column title is required. Please add a field to the Category
+          role or provide a non-empty title to display the table.
+        </div>
+      );
+      return;
+    }
+
     const data = this.transformData(mainCategories);
+
+    // Detect if we're getting an unusually small dataset after having more data
+    // This can happen when filters are reset but cross-filtering or selections are still active
+    const currentDataLength = data.length;
+
+    // Only check and potentially fix if we had significantly more data before
+    // and now we have only 1 row (which is suspicious)
+    // Also prevent the fix from running too frequently (within 2 seconds)
+    const now = Date.now();
+    const timeSinceLastFix = now - this.lastFixAttemptTime;
+
+    if (
+      this.previousDataLength > 10 && // Had a reasonable amount of data before
+      currentDataLength === 1 && // Now only have 1 row
+      this.previousDataLength !== currentDataLength && // Data actually changed
+      timeSinceLastFix > 2000 // Haven't tried to fix recently (prevents loops)
+    ) {
+      console.warn(
+        `Data length dropped from ${this.previousDataLength} to ${currentDataLength}. This might indicate a filtered dataView. Checking for residual selections.`
+      );
+
+      // Mark that we're attempting a fix
+      this.lastFixAttemptTime = now;
+
+      // Check for and clear any active selections that might be causing the filtering
+      try {
+        const currentSelections = await this.selectionManager.getSelectionIds();
+        if (currentSelections && currentSelections.length > 0) {
+          await this.selectionManager.clear();
+          // Note: This will trigger another update() call, so we'll process the data again
+          // For now, we'll still render with the current data to avoid flickering
+        } else {
+        }
+      } catch (error) {
+        console.error("Error checking/clearing selections:", error);
+      }
+    }
+
+    // Update previous data length (but only if we're not in the middle of fixing the issue)
+    // This prevents the fix from being triggered repeatedly
+    if (currentDataLength !== 1 || this.previousDataLength <= 10) {
+      this.previousDataLength = currentDataLength;
+    }
 
     // Transform nested data
     const nestedColumns = nestedCategories.map((category) => ({
@@ -111,6 +231,32 @@ export class Visual implements IVisual {
 
     // Use the first main category (e.g., Pest) as the key for matching
     const mainKey = mainCategories[0].source.displayName;
+
+    // Validate that the first column has no empty/null values
+    const hasEmptyInFirstColumn = data.some((row) => {
+      const value = row?.[mainKey];
+      return (
+        value === null || value === undefined || String(value).trim() === ""
+      );
+    });
+    if (hasEmptyInFirstColumn) {
+      this.root.render(
+        <div
+          style={{
+            padding: "16px",
+            color: "#721c24",
+            backgroundColor: "#f8d7da",
+            border: "1px solid #f5c6cb",
+            borderRadius: "4px",
+            fontFamily: "Arial, sans-serif",
+          }}
+        >
+          The first column contains empty values. Please ensure all titles are
+          populated before rendering the table.
+        </div>
+      );
+      return;
+    }
 
     // Create nested data entries
     mainCategories[0].values.forEach((mainValue, index) => {
@@ -127,7 +273,7 @@ export class Visual implements IVisual {
       });
 
       // Use the main value as key to group nested data
-      const key = mainValue.toString();
+      const key = String(mainValue ?? "");
       if (!nestedDataMap.has(key)) {
         nestedDataMap.set(key, []);
       }
@@ -136,23 +282,11 @@ export class Visual implements IVisual {
 
     // Function to get nested data for a row
     const getNestedDataForRow = (row: any) => {
-      const key = row[mainKey].toString();
+      const key = String(row[mainKey] ?? "");
       const nestedData = nestedDataMap.get(key) || [];
-      console.log("Getting nested data for row:", row);
-      console.log("Key:", key);
-      console.log("Found nested data:", nestedData);
+
       return nestedData;
     };
-
-    // Add detailed logging
-    console.log("Main Columns:", columns);
-    console.log("Main Data:", data);
-    console.log("Nested Columns:", nestedColumns);
-    console.log("Nested Data Map:", nestedDataMap);
-    console.log(
-      "Sample nested data for first row:",
-      getNestedDataForRow(data[0])
-    );
 
     // Get current selections
     const selections = await this.selectionManager.getSelectionIds();
