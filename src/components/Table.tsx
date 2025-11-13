@@ -189,6 +189,122 @@ const FilterComponent: React.FC<{
   );
 };
 
+// SVG Image Cell component with error handling
+const SvgImageCell: React.FC<{ url: string }> = ({ url }) => {
+  const [imageError, setImageError] = useState(false);
+  const [svgContent, setSvgContent] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Try to fetch SVG content proactively as a backup
+  useEffect(() => {
+    if (!svgContent && !isLoading) {
+      setIsLoading(true);
+      fetch(url)
+        .then((response) => {
+          if (response.ok) {
+            return response.text();
+          }
+          throw new Error("Failed to fetch SVG");
+        })
+        .then((text) => {
+          setSvgContent(text);
+          setIsLoading(false);
+        })
+        .catch(() => {
+          setIsLoading(false);
+        });
+    }
+  }, [url, svgContent, isLoading]);
+
+  // If we have SVG content, render it inline
+  if (svgContent) {
+    // Parse and modify SVG to ensure proper sizing
+    try {
+      const parser = new DOMParser();
+      const svgDoc = parser.parseFromString(svgContent, "image/svg+xml");
+      const svgElement = svgDoc.documentElement;
+
+      // Set size attributes if not present
+      if (!svgElement.getAttribute("width")) {
+        svgElement.setAttribute("width", "16");
+      }
+      if (!svgElement.getAttribute("height")) {
+        svgElement.setAttribute("height", "16");
+      }
+      svgElement.setAttribute(
+        "style",
+        "max-width: 100%; max-height: 24px; width: auto; height: auto;"
+      );
+
+      const modifiedSvg = new XMLSerializer().serializeToString(svgElement);
+
+      return (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            maxWidth: "100%",
+            maxHeight: "24px",
+            verticalAlign: "middle",
+          }}
+          dangerouslySetInnerHTML={{ __html: modifiedSvg }}
+        />
+      );
+    } catch (e) {
+      // If parsing fails, just render the original content
+      return (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            maxWidth: "100%",
+            maxHeight: "24px",
+            verticalAlign: "middle",
+          }}
+          dangerouslySetInnerHTML={{ __html: svgContent }}
+        />
+      );
+    }
+  }
+
+  // If we have SVG content, prefer it (already handled above)
+  // Otherwise, try to show as image
+  // If image failed and we don't have SVG content yet, show nothing while loading
+  if (imageError && !svgContent && isLoading) {
+    return null; // Still loading, show nothing
+  }
+
+  // If image failed and we don't have SVG content, show nothing
+  if (imageError && !svgContent) {
+    return null; // Don't show the URL string, just show nothing
+  }
+
+  // Try to render as image (will fallback to SVG content if image fails)
+  return (
+    <img
+      src={url}
+      alt=""
+      style={{
+        maxWidth: "100%",
+        maxHeight: "24px",
+        width: "auto",
+        height: "auto",
+        display: "inline-block",
+        verticalAlign: "middle",
+      }}
+      onError={() => {
+        setImageError(true);
+        // If image fails and we have SVG content, it will re-render with SVG
+      }}
+      onLoad={() => {
+        setImageError(false);
+      }}
+    />
+  );
+};
+
 // Nested table component
 const NestedTable: React.FC<{
   rowData: any;
@@ -212,31 +328,94 @@ const NestedTable: React.FC<{
       >
         {actualNestedData.map((item, index) => (
           <div key={index} style={{ marginBottom: "24px" }}>
-            {nestedColumns.map((column) => (
-              <div key={column.accessorKey} style={{ marginBottom: "16px" }}>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    color: "#495057",
-                    marginBottom: "4px",
-                    fontFamily: "Arial, sans-serif",
-                  }}
-                >
-                  {column.header}:
+            {nestedColumns.map((column, colIndex) => {
+              const cellValue = item[column.accessorKey];
+              const cellValueStr = String(cellValue || "");
+              const isYes = cellValueStr.toLowerCase() === "yes";
+              const isNo = cellValueStr.toLowerCase() === "no";
+              const isSvgUrl =
+                colIndex > 0 &&
+                cellValueStr.startsWith(
+                  "https://raw.githubusercontent.com/hypertechsa"
+                );
+
+              return (
+                <div key={column.accessorKey} style={{ marginBottom: "16px" }}>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      color: "#495057",
+                      marginBottom: "4px",
+                      fontFamily: "Arial, sans-serif",
+                    }}
+                  >
+                    {column.header}:
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      color: "#6c757d",
+                      paddingLeft: "12px",
+                      fontFamily: "Arial, sans-serif",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {colIndex === 0 ? (
+                      // First column: show text as is
+                      cellValue
+                    ) : isSvgUrl ? (
+                      // If it's an SVG URL, show the image
+                      <SvgImageCell url={cellValueStr} />
+                    ) : isYes ? (
+                      // If text is "Yes", apply Yes styling
+                      <span
+                        style={{
+                          backgroundColor: "#EAEAEA",
+                          color: "#222222",
+                          width: "44px",
+                          height: "22px",
+                          padding: "4px 12px",
+                          borderRadius: "6px",
+                          fontWeight: "500",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontFamily: "Arial, sans-serif",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        {cellValue}
+                      </span>
+                    ) : isNo ? (
+                      // If text is "No", apply No styling
+                      <span
+                        style={{
+                          backgroundColor: "#22294B",
+                          color: "#FFFFFF",
+                          width: "40px",
+                          height: "22px",
+                          padding: "4px 12px",
+                          borderRadius: "6px",
+                          fontWeight: "500",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontFamily: "Arial, sans-serif",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        {cellValue}
+                      </span>
+                    ) : (
+                      // Otherwise, show text as is
+                      cellValue
+                    )}
+                  </div>
                 </div>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    color: "#6c757d",
-                    paddingLeft: "12px",
-                    fontFamily: "Arial, sans-serif",
-                  }}
-                >
-                  {item[column.accessorKey]}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ))}
       </div>
@@ -280,7 +459,6 @@ export const Table: React.FC<TableProps> = ({
       <div
         style={{
           padding: "16px",
-          color: "#721c24",
           backgroundColor: "#f8d7da",
           border: "1px solid #f5c6cb",
           borderRadius: "4px",
@@ -930,8 +1108,16 @@ export const Table: React.FC<TableProps> = ({
                   </td>
                   {columns.map((column, columnIndex) => {
                     const cellValue = row[column.accessorKey];
-                    const isYes = String(cellValue).toLowerCase() === "yes";
-                    const isNo = String(cellValue).toLowerCase() === "no";
+                    const cellValueStr = String(cellValue || "");
+                    const isYes = cellValueStr.toLowerCase() === "yes";
+                    const isNo = cellValueStr.toLowerCase() === "no";
+
+                    // Check if the value is a URL from the specified domain
+                    const isSvgUrl =
+                      columnIndex > 0 &&
+                      cellValueStr.startsWith(
+                        "https://raw.githubusercontent.com/hypertechsa"
+                      );
 
                     return (
                       <td
@@ -949,42 +1135,54 @@ export const Table: React.FC<TableProps> = ({
                           overflow: columnIndex === 0 ? "hidden" : "visible",
                         }}
                       >
-                        {columnIndex === 1 ? (
-                          // Second column: show circle icons
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: "12px",
-                                height: "12px",
-                                borderRadius: "50%",
-                                backgroundColor: isYes ? "#000" : "transparent",
-                                border: isNo ? "2px solid #000" : "none",
-                                display: "inline-block",
-                              }}
-                            />
-                          </div>
-                        ) : // Other columns: show Yes/No badges or regular text
-                        isYes || isNo ? (
+                        {columnIndex === 0 ? (
+                          // First column: show text as is
+                          cellValue
+                        ) : isSvgUrl ? (
+                          // For columns after the first: if it's an SVG URL, show the image
+                          <SvgImageCell url={cellValueStr} />
+                        ) : isYes ? (
+                          // If text is "Yes", apply Yes styling
                           <span
                             style={{
-                              backgroundColor: isYes ? "#D4F8D3" : "#FFEABD",
+                              backgroundColor: "#EAEAEA",
                               color: "#222222",
-                              padding: "4px 8px",
+                              width: "44px",
+                              height: "22px",
+                              padding: "4px 12px",
                               borderRadius: "6px",
                               fontWeight: "500",
-                              display: "inline-block",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
                               fontFamily: "Arial, sans-serif",
+                              boxSizing: "border-box",
+                            }}
+                          >
+                            {cellValue}
+                          </span>
+                        ) : isNo ? (
+                          // If text is "No", apply No styling
+                          <span
+                            style={{
+                              backgroundColor: "#22294B",
+                              color: "#FFFFFF",
+                              width: "40px",
+                              height: "22px",
+                              padding: "4px 12px",
+                              borderRadius: "6px",
+                              fontWeight: "500",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontFamily: "Arial, sans-serif",
+                              boxSizing: "border-box",
                             }}
                           >
                             {cellValue}
                           </span>
                         ) : (
+                          // Otherwise, show text as is
                           cellValue
                         )}
                       </td>
