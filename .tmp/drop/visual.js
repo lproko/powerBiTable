@@ -13061,6 +13061,20 @@ var __awaiter = (undefined && undefined.__awaiter) || function (thisArg, _argume
 
 
 
+// Helper function to check if a string is a URL
+const isUrl = (str) => {
+    try {
+        const url = new URL(str);
+        return url.protocol === "http:" || url.protocol === "https:";
+    }
+    catch (_a) {
+        return false;
+    }
+};
+// Link icon SVG - inline SVG for reliability
+const LinkIcon = ({ size = 16 }) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", xmlns: "http://www.w3.org/2000/svg", style: { display: "inline-block", verticalAlign: "middle" } },
+    react__WEBPACK_IMPORTED_MODULE_0__.createElement("path", { d: "M10 13C10.4295 13.5741 10.9774 14.0491 11.6066 14.3929C12.2357 14.7367 12.9315 14.9411 13.6466 14.9923C14.3618 15.0435 15.0796 14.9403 15.7513 14.6897C16.4231 14.4392 17.0331 14.047 17.54 13.54L20.54 10.54C21.4508 9.59695 21.9548 8.33394 21.9434 7.02296C21.932 5.71198 21.4061 4.45791 20.4791 3.53087C19.5521 2.60383 18.298 2.07799 16.987 2.0666C15.676 2.0552 14.413 2.55918 13.47 3.47L11.75 5.18", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }),
+    react__WEBPACK_IMPORTED_MODULE_0__.createElement("path", { d: "M14 11C13.5705 10.4259 13.0226 9.95085 12.3934 9.60707C11.7643 9.26329 11.0685 9.05886 10.3534 9.00766C9.63821 8.95645 8.92037 9.05972 8.24865 9.31026C7.57694 9.5608 6.96687 9.95302 6.46 10.46L3.46 13.46C2.54918 14.403 2.04519 15.6661 2.05659 16.977C2.06798 18.288 2.59382 19.5421 3.52086 20.4691C4.44791 21.3962 5.70198 21.922 7.01296 21.9334C8.32394 21.9448 9.58695 21.4408 10.53 20.53L12.24 18.82", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" })));
 // Custom filter functions
 const numberFilter = (row, columnId, filterValue, addMeta) => {
     const value = row.getValue(columnId);
@@ -13177,10 +13191,19 @@ const SvgImageCell = ({ url }) => {
     const [imageError, setImageError] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(false);
     const [svgContent, setSvgContent] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(null);
     const [isLoading, setIsLoading] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(false);
-    // Try to fetch SVG content proactively as a backup
+    const [fetchAttempted, setFetchAttempted] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(false);
+    // Reset state when URL changes
     (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
-        if (!svgContent && !isLoading) {
+        setImageError(false);
+        setSvgContent(null);
+        setIsLoading(false);
+        setFetchAttempted(false);
+    }, [url]);
+    // Try to fetch SVG content proactively as a backup (only once per URL)
+    (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
+        if (!svgContent && !isLoading && !fetchAttempted && url) {
             setIsLoading(true);
+            setFetchAttempted(true);
             fetch(url)
                 .then((response) => {
                 if (response.ok) {
@@ -13194,9 +13217,10 @@ const SvgImageCell = ({ url }) => {
             })
                 .catch(() => {
                 setIsLoading(false);
+                // Don't retry - mark as attempted and failed
             });
         }
-    }, [url, svgContent, isLoading]);
+    }, [url, svgContent, isLoading, fetchAttempted]);
     // If we have SVG content, render it inline
     if (svgContent) {
         // Parse and modify SVG to ensure proper sizing
@@ -13259,80 +13283,132 @@ const SvgImageCell = ({ url }) => {
             setImageError(false);
         } }));
 };
-// Nested table component
-const NestedTable = ({ rowData, nestedData: nestedDataProp, nestedColumns }) => {
+// Nested table component - renders nested columns as key-value pairs and nested table as full table
+const NestedTable = ({ rowData, nestedData: nestedDataProp, nestedColumns, nestedTableData, nestedTableColumns, nestedTableNestedData, nestedTableNestedColumns, selectionManager, dataView, host, }) => {
     // Get the actual nested data
     const actualNestedData = typeof nestedDataProp === "function"
         ? nestedDataProp(rowData)
         : nestedDataProp;
-    // If we have nested columns and data, use them
-    if (nestedColumns && actualNestedData && actualNestedData.length > 0) {
-        return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: { padding: "24px", backgroundColor: "white", margin: "0 16px" } }, actualNestedData.map((item, index) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { key: index, style: { marginBottom: "24px" } }, nestedColumns.map((column, colIndex) => {
-            const cellValue = item[column.accessorKey];
-            const cellValueStr = String(cellValue || "");
-            const isYes = cellValueStr.toLowerCase() === "yes";
-            const isNo = cellValueStr.toLowerCase() === "no";
-            const isSvgUrl = colIndex > 0 &&
-                cellValueStr.startsWith("https://raw.githubusercontent.com/hypertechsa");
-            return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { key: column.accessorKey, style: { marginBottom: "16px" } },
-                react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
-                        fontSize: "14px",
-                        fontWeight: "bold",
-                        color: "#495057",
-                        marginBottom: "4px",
-                        fontFamily: "Arial, sans-serif",
+    // Get nested table data if available
+    const actualNestedTableData = nestedTableData ? nestedTableData(rowData) : [];
+    // Check if we have both nested columns and nested table
+    const hasNestedColumns = nestedColumns && actualNestedData && actualNestedData.length > 0;
+    const hasNestedTable = nestedTableColumns &&
+        actualNestedTableData &&
+        actualNestedTableData.length > 0;
+    return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+            padding: "24px",
+            backgroundColor: "white",
+            margin: "0 16px",
+            display: "flex",
+            gap: "24px",
+            alignItems: "flex-start",
+            width: "100%",
+            maxWidth: "100%",
+            boxSizing: "border-box",
+            overflow: "hidden",
+        } },
+        hasNestedColumns && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                width: hasNestedTable ? "40%" : "100%",
+                flexShrink: 0,
+                maxWidth: hasNestedTable ? "40%" : "100%",
+                overflow: "hidden",
+                boxSizing: "border-box",
+            } }, actualNestedData.map((item, index) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { key: index, style: { marginBottom: "24px" } },
+            react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "16px",
+                } }, nestedColumns.map((column, colIndex) => {
+                const cellValue = item[column.accessorKey];
+                const cellValueStr = String(cellValue || "");
+                const isYes = cellValueStr.toLowerCase() === "yes";
+                const isNo = cellValueStr.toLowerCase() === "no";
+                const isSvgUrl = colIndex > 0 &&
+                    cellValueStr.startsWith("https://raw.githubusercontent.com/hypertechsa");
+                return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { key: column.accessorKey, style: { marginBottom: "16px" } },
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                            fontSize: "14px",
+                            fontWeight: "bold",
+                            color: "#495057",
+                            marginBottom: "4px",
+                            fontFamily: "Arial, sans-serif",
+                        } },
+                        column.header,
+                        ":"),
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                            fontSize: "14px",
+                            color: "#6c757d",
+                            paddingLeft: "12px",
+                            fontFamily: "Arial, sans-serif",
+                            display: "flex",
+                            alignItems: "center",
+                        } }, colIndex === 0 ? (
+                    // First column: show text as is
+                    cellValue) : isSvgUrl ? (
+                    // If it's an SVG URL, show the image
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement(SvgImageCell, { url: cellValueStr })) : isYes ? (
+                    // If text is "Yes", apply Yes styling
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", { style: {
+                            backgroundColor: "#EAEAEA",
+                            color: "#222222",
+                            width: "44px",
+                            height: "22px",
+                            padding: "4px 12px",
+                            borderRadius: "6px",
+                            fontWeight: "500",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontFamily: "Arial, sans-serif",
+                            boxSizing: "border-box",
+                        } }, cellValue)) : isNo ? (
+                    // If text is "No", apply No styling
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", { style: {
+                            backgroundColor: "#22294B",
+                            color: "#FFFFFF",
+                            width: "40px",
+                            height: "22px",
+                            padding: "4px 12px",
+                            borderRadius: "6px",
+                            fontWeight: "500",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontFamily: "Arial, sans-serif",
+                            boxSizing: "border-box",
+                        } }, cellValue)) : (
+                    // Otherwise, show text as is
+                    cellValue))));
+            }))))))),
+        hasNestedTable &&
+            (() => {
+                var _a;
+                // Filter out rows with empty first column values
+                const firstColumnKey = (_a = nestedTableColumns[0]) === null || _a === void 0 ? void 0 : _a.accessorKey;
+                const filteredNestedTableData = firstColumnKey
+                    ? actualNestedTableData.filter((row) => {
+                        const value = row === null || row === void 0 ? void 0 : row[firstColumnKey];
+                        return (value !== null &&
+                            value !== undefined &&
+                            String(value).trim() !== "");
+                    })
+                    : actualNestedTableData;
+                // Only render if we have valid data after filtering
+                if (filteredNestedTableData.length === 0) {
+                    return null;
+                }
+                return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                        width: hasNestedColumns ? "50%" : "100%",
+                        flexShrink: 0,
+                        maxWidth: hasNestedColumns ? "50%" : "100%",
+                        overflow: "hidden",
+                        boxSizing: "border-box",
                     } },
-                    column.header,
-                    ":"),
-                react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
-                        fontSize: "14px",
-                        color: "#6c757d",
-                        paddingLeft: "12px",
-                        fontFamily: "Arial, sans-serif",
-                        display: "flex",
-                        alignItems: "center",
-                    } }, colIndex === 0 ? (
-                // First column: show text as is
-                cellValue) : isSvgUrl ? (
-                // If it's an SVG URL, show the image
-                react__WEBPACK_IMPORTED_MODULE_0__.createElement(SvgImageCell, { url: cellValueStr })) : isYes ? (
-                // If text is "Yes", apply Yes styling
-                react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", { style: {
-                        backgroundColor: "#EAEAEA",
-                        color: "#222222",
-                        width: "44px",
-                        height: "22px",
-                        padding: "4px 12px",
-                        borderRadius: "6px",
-                        fontWeight: "500",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontFamily: "Arial, sans-serif",
-                        boxSizing: "border-box",
-                    } }, cellValue)) : isNo ? (
-                // If text is "No", apply No styling
-                react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", { style: {
-                        backgroundColor: "#22294B",
-                        color: "#FFFFFF",
-                        width: "40px",
-                        height: "22px",
-                        padding: "4px 12px",
-                        borderRadius: "6px",
-                        fontWeight: "500",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontFamily: "Arial, sans-serif",
-                        boxSizing: "border-box",
-                    } }, cellValue)) : (
-                // Otherwise, show text as is
-                cellValue))));
-        }))))));
-    }
-    return null;
+                    react__WEBPACK_IMPORTED_MODULE_0__.createElement(Table, { columns: nestedTableColumns, data: filteredNestedTableData, nestedData: nestedTableNestedData || (() => []), nestedColumns: nestedTableNestedColumns, nestedTableData: undefined, nestedTableColumns: undefined, nestedTableNestedData: undefined, nestedTableNestedColumns: undefined, selectionManager: selectionManager, dataView: dataView, host: host, isNestedTable: true })));
+            })()));
 };
-const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dataView, host, }) => {
+const Table = ({ columns, data, nestedData, nestedColumns, nestedTableData, nestedTableColumns, nestedTableNestedData, nestedTableNestedColumns, selectionManager, dataView, host, isNestedTable = false, }) => {
     var _a;
     const [expanded, setExpanded] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)({});
     const [visibleRows, setVisibleRows] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(20);
@@ -13552,19 +13628,20 @@ const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dat
             setVisibleRows((prev) => Math.min(prev + 20, sortedData.length));
         }
     };
-    return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
-            width: "100%",
-            height: "100%",
-            display: "flex",
-            flexDirection: "column",
-        } },
+    const containerStyle = {
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+    };
+    if (isNestedTable) {
+        containerStyle.border = "1px solid #e0e0e0";
+        containerStyle.borderRadius = "4px";
+        containerStyle.backgroundColor = "#fafafa";
+    }
+    return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: containerStyle },
         react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { ref: tableRef, style: { flex: 1, overflow: "auto" }, onScroll: handleScroll },
-            react__WEBPACK_IMPORTED_MODULE_0__.createElement("table", { style: {
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    fontFamily: "Arial, sans-serif",
-                    position: "relative",
-                } },
+            react__WEBPACK_IMPORTED_MODULE_0__.createElement("table", { style: Object.assign({ width: "100%", maxWidth: "100%", borderCollapse: "collapse", fontFamily: "Arial, sans-serif", position: "relative" }, (isNestedTable ? {} : { tableLayout: "fixed" })) },
                 react__WEBPACK_IMPORTED_MODULE_0__.createElement("thead", { style: {
                         position: "sticky",
                         top: 0,
@@ -13572,16 +13649,6 @@ const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dat
                         backgroundColor: "#F6F6F6",
                     } },
                     react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
-                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { style: {
-                                width: "40px",
-                                padding: "12px 8px",
-                                borderBottom: "1px solid #ddd",
-                                backgroundColor: "#F6F6F6",
-                                fontSize: "14px",
-                                fontWeight: "bold",
-                                fontFamily: "Arial, sans-serif",
-                                textAlign: "center",
-                            } }),
                         columns.map((column, index) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { key: column.accessorKey, style: {
                                 padding: "12px 8px",
                                 borderBottom: "1px solid #ddd",
@@ -13785,7 +13852,8 @@ const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dat
                                                             e.target.parentElement.style.borderBottomColor =
                                                                 "#e0e0e0";
                                                         } })))))))))))),
-                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { style: {
+                        ((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
+                            (isNestedTable && nestedColumns)) && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("th", { style: {
                                 width: "40px",
                                 padding: "12px 8px",
                                 borderBottom: "1px solid #ddd",
@@ -13794,24 +13862,9 @@ const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dat
                                 fontWeight: "bold",
                                 fontFamily: "Arial, sans-serif",
                                 textAlign: "center",
-                            } }))),
+                            } })))),
                 react__WEBPACK_IMPORTED_MODULE_0__.createElement("tbody", null, currentData.map((row, index) => (react__WEBPACK_IMPORTED_MODULE_0__.createElement(react__WEBPACK_IMPORTED_MODULE_0__.Fragment, { key: index },
                     react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
-                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { style: {
-                                padding: "12px 8px",
-                                borderBottom: "1px solid #ddd",
-                                textAlign: "center",
-                                fontSize: "14px",
-                                fontFamily: "Arial, sans-serif",
-                            } },
-                            react__WEBPACK_IMPORTED_MODULE_0__.createElement("input", { type: "checkbox", checked: selectedRows.has(getRowIdentifier(row)), onChange: (e) => {
-                                    handleRowSelection(row, e.target.checked);
-                                }, style: {
-                                    cursor: "pointer",
-                                    accentColor: "#22294d",
-                                    width: "16px",
-                                    height: "16px",
-                                } })),
                         columns.map((column, columnIndex) => {
                             const cellValue = row[column.accessorKey];
                             const cellValueStr = String(cellValue || "");
@@ -13820,6 +13873,8 @@ const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dat
                             // Check if the value is a URL from the specified domain
                             const isSvgUrl = columnIndex > 0 &&
                                 cellValueStr.startsWith("https://raw.githubusercontent.com/hypertechsa");
+                            // Check if the value is a URL (for nested tables)
+                            const cellIsUrl = isNestedTable && isUrl(cellValueStr);
                             return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { key: column.accessorKey, style: {
                                     padding: "12px 8px",
                                     borderBottom: "1px solid #ddd",
@@ -13833,7 +13888,17 @@ const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dat
                                     overflow: columnIndex === 0 ? "hidden" : "visible",
                                 } }, columnIndex === 0 ? (
                             // First column: show text as is
-                            cellValue) : isSvgUrl ? (
+                            cellValue) : cellIsUrl ? (
+                            // For nested tables: if it's a URL, show clickable link icon
+                            react__WEBPACK_IMPORTED_MODULE_0__.createElement("a", { href: cellValueStr, target: "_blank", rel: "noopener noreferrer", onClick: (e) => e.stopPropagation(), style: {
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    cursor: "pointer",
+                                    textDecoration: "none",
+                                    color: "#0078d4",
+                                }, title: cellValueStr },
+                                react__WEBPACK_IMPORTED_MODULE_0__.createElement(LinkIcon, { size: 16 }))) : isSvgUrl ? (
                             // For columns after the first: if it's an SVG URL, show the image
                             react__WEBPACK_IMPORTED_MODULE_0__.createElement(SvgImageCell, { url: cellValueStr })) : isYes ? (
                             // If text is "Yes", apply Yes styling
@@ -13869,17 +13934,112 @@ const Table = ({ columns, data, nestedData, nestedColumns, selectionManager, dat
                             // Otherwise, show text as is
                             cellValue)));
                         }),
-                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { style: {
+                        ((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
+                            (isNestedTable && nestedColumns)) && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { style: {
                                 padding: "12px 8px",
                                 borderBottom: "1px solid #ddd",
                                 textAlign: "center",
                                 cursor: "pointer",
                                 fontSize: "16px",
                                 fontFamily: "Arial, sans-serif",
-                            }, onClick: () => toggleRow(getOriginalDataIndex(row).toString()) }, expanded[getOriginalDataIndex(row).toString()] ? (react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_icons_io__WEBPACK_IMPORTED_MODULE_3__/* .IoIosArrowUp */ .Ik, null)) : (react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_icons_io__WEBPACK_IMPORTED_MODULE_3__/* .IoIosArrowDown */ .pte, null)))),
-                    expanded[getOriginalDataIndex(row).toString()] && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
-                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { colSpan: columns.length + 2 },
-                            react__WEBPACK_IMPORTED_MODULE_0__.createElement(NestedTable, { rowData: row, nestedData: nestedData, nestedColumns: nestedColumns }))))))))))));
+                            }, onClick: () => toggleRow(getOriginalDataIndex(row).toString()) }, expanded[getOriginalDataIndex(row).toString()] ? (react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_icons_io__WEBPACK_IMPORTED_MODULE_3__/* .IoIosArrowUp */ .Ik, null)) : (react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_icons_io__WEBPACK_IMPORTED_MODULE_3__/* .IoIosArrowDown */ .pte, null))))),
+                    !isNestedTable &&
+                        expanded[getOriginalDataIndex(row).toString()] && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
+                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { colSpan: columns.length +
+                                (nestedColumns || nestedTableColumns ? 1 : 0), style: {
+                                padding: 0,
+                                width: "100%",
+                                maxWidth: "100%",
+                                overflow: "hidden",
+                                boxSizing: "border-box",
+                            } },
+                            react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                                    width: "100%",
+                                    maxWidth: "100%",
+                                    overflow: "hidden",
+                                    boxSizing: "border-box",
+                                } },
+                                react__WEBPACK_IMPORTED_MODULE_0__.createElement(NestedTable, { rowData: row, nestedData: nestedData, nestedColumns: nestedColumns, nestedTableData: nestedTableData, nestedTableColumns: nestedTableColumns, nestedTableNestedData: nestedTableNestedData, nestedTableNestedColumns: nestedTableNestedColumns, selectionManager: selectionManager, dataView: dataView, host: host }))))),
+                    isNestedTable &&
+                        nestedColumns &&
+                        expanded[getOriginalDataIndex(row).toString()] && (react__WEBPACK_IMPORTED_MODULE_0__.createElement("tr", null,
+                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("td", { colSpan: columns.length + 1, style: {
+                                padding: "24px",
+                                backgroundColor: "#fafafa",
+                                borderTop: "1px solid #e0e0e0",
+                                width: "100%",
+                            } },
+                            react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                                    display: "grid",
+                                    gridTemplateColumns: "1fr",
+                                    gap: "16px",
+                                    width: "100%",
+                                } }, (() => {
+                                const rowNestedData = typeof nestedData === "function"
+                                    ? nestedData(row)
+                                    : nestedData || [];
+                                // If no nested data for this row, return empty
+                                if (!rowNestedData || rowNestedData.length === 0) {
+                                    return null;
+                                }
+                                return rowNestedData.map((item, itemIndex) => nestedColumns.map((column, colIndex) => {
+                                    const cellValue = item[column.accessorKey];
+                                    const cellValueStr = String(cellValue || "");
+                                    const isYes = cellValueStr.toLowerCase() === "yes";
+                                    const isNo = cellValueStr.toLowerCase() === "no";
+                                    const isSvgUrl = colIndex > 0 &&
+                                        cellValueStr.startsWith("https://raw.githubusercontent.com/hypertechsa");
+                                    return (react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { key: `${itemIndex}-${column.accessorKey}`, style: {
+                                            marginBottom: "16px",
+                                            width: "100%",
+                                        } },
+                                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                                                fontSize: "14px",
+                                                fontWeight: "bold",
+                                                color: "#495057",
+                                                marginBottom: "4px",
+                                                fontFamily: "Arial, sans-serif",
+                                                width: "100%",
+                                            } },
+                                            column.header,
+                                            ":"),
+                                        react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                                                fontSize: "14px",
+                                                color: "#6c757d",
+                                                paddingLeft: "12px",
+                                                fontFamily: "Arial, sans-serif",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                width: "100%",
+                                            } }, colIndex === 0 ? (cellValue) : isSvgUrl ? (react__WEBPACK_IMPORTED_MODULE_0__.createElement(SvgImageCell, { url: cellValueStr })) : isYes ? (react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", { style: {
+                                                backgroundColor: "#EAEAEA",
+                                                color: "#222222",
+                                                width: "44px",
+                                                height: "22px",
+                                                padding: "4px 12px",
+                                                borderRadius: "6px",
+                                                fontWeight: "500",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                fontFamily: "Arial, sans-serif",
+                                                boxSizing: "border-box",
+                                            } }, cellValue)) : isNo ? (react__WEBPACK_IMPORTED_MODULE_0__.createElement("span", { style: {
+                                                backgroundColor: "#22294B",
+                                                color: "#FFFFFF",
+                                                width: "40px",
+                                                height: "22px",
+                                                padding: "4px 12px",
+                                                borderRadius: "6px",
+                                                fontWeight: "500",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                fontFamily: "Arial, sans-serif",
+                                                boxSizing: "border-box",
+                                            } }, cellValue)) : (cellValue))));
+                                }));
+                            })()))))))))))));
 };
 
 
@@ -14610,7 +14770,7 @@ class Visual {
     }
     update(options) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b, _c, _d;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
             this.formattingSettings =
                 this.formattingSettingsService.populateFormattingSettingsModel(_settings__WEBPACK_IMPORTED_MODULE_4__/* .VisualFormattingSettingsModel */ .S, options.dataViews[0]);
             // Get data from Power BI
@@ -14629,6 +14789,8 @@ class Visual {
             // Separate categories based on roles
             const mainCategories = categories.filter((category) => { var _a; return (_a = category.source.roles) === null || _a === void 0 ? void 0 : _a.category; });
             const nestedCategories = categories.filter((category) => { var _a; return (_a = category.source.roles) === null || _a === void 0 ? void 0 : _a.nested; });
+            const nestedTableCategories = categories.filter((category) => { var _a; return (_a = category.source.roles) === null || _a === void 0 ? void 0 : _a.nestedTable; });
+            const nestedTableNestedCategories = categories.filter((category) => { var _a; return (_a = category.source.roles) === null || _a === void 0 ? void 0 : _a.nestedTableNested; });
             // Validate that we have data - if main categories exist but have suspiciously few values,
             // it might indicate a filtered context issue
             if (mainCategories.length > 0) {
@@ -14675,7 +14837,48 @@ class Visual {
                     } }, "The first column title is required. Please add a field to the Category role or provide a non-empty title to display the table."));
                 return;
             }
-            const data = this.transformData(mainCategories);
+            let data = this.transformData(mainCategories);
+            // Get the main key for filtering and validation
+            const mainKey = mainCategories[0].source.displayName;
+            // Filter out rows with empty first column values before validation
+            // This handles cases where related table data might create empty rows
+            data = data.filter((row) => {
+                const value = row === null || row === void 0 ? void 0 : row[mainKey];
+                return (value !== null && value !== undefined && String(value).trim() !== "");
+            });
+            // If we filtered out all rows, show error
+            if (data.length === 0) {
+                this.root.render(react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
+                        padding: "16px",
+                        color: "#721c24",
+                        backgroundColor: "#f8d7da",
+                        border: "1px solid #f5c6cb",
+                        borderRadius: "4px",
+                        fontFamily: "Arial, sans-serif",
+                    } }, "No valid data rows found. Please ensure the first column has values."));
+                return;
+            }
+            // Deduplicate main table data by the main key
+            // When Power BI expands related table data, it creates duplicate rows
+            // We want to show each pest only once in the main table
+            const originalDataLength = data.length;
+            const seenKeys = new Set();
+            const uniqueData = [];
+            data.forEach((row) => {
+                var _a;
+                const key = String((_a = row[mainKey]) !== null && _a !== void 0 ? _a : "");
+                if (!seenKeys.has(key)) {
+                    seenKeys.add(key);
+                    uniqueData.push(row);
+                }
+            });
+            // Use the deduplicated data for the main table
+            data = uniqueData;
+            console.log("Data deduplication:", {
+                originalRowCount: originalDataLength,
+                uniqueRowCount: uniqueData.length,
+                duplicatesRemoved: originalDataLength - uniqueData.length,
+            });
             // Detect if we're getting an unusually small dataset after having more data
             // This can happen when filters are reset but cross-filtering or selections are still active
             const currentDataLength = data.length;
@@ -14717,44 +14920,235 @@ class Visual {
                 header: category.source.displayName,
                 accessorKey: category.source.displayName,
             }));
+            // Transform nested table columns
+            const nestedTableColumns = nestedTableCategories.map((category) => ({
+                header: category.source.displayName,
+                accessorKey: category.source.displayName,
+            }));
+            // Transform nested table nested columns
+            const nestedTableNestedColumns = nestedTableNestedCategories.map((category) => ({
+                header: category.source.displayName,
+                accessorKey: category.source.displayName,
+            }));
             // Create a map of parent row identifiers to nested data
             const nestedDataMap = new Map();
+            // Create a map of parent row identifiers to nested table data
+            const nestedTableDataMap = new Map();
+            // Create a map for nested table nested columns data
+            // Key: nested table row key (e.g., PUBID), Value: array of nested column rows
+            const nestedTableNestedDataMap = new Map();
             // Use the first main category (e.g., Pest) as the key for matching
-            const mainKey = mainCategories[0].source.displayName;
-            // Validate that the first column has no empty/null values
-            const hasEmptyInFirstColumn = data.some((row) => {
-                const value = row === null || row === void 0 ? void 0 : row[mainKey];
-                return (value === null || value === undefined || String(value).trim() === "");
-            });
-            if (hasEmptyInFirstColumn) {
-                this.root.render(react__WEBPACK_IMPORTED_MODULE_0__.createElement("div", { style: {
-                        padding: "16px",
-                        color: "#721c24",
-                        backgroundColor: "#f8d7da",
-                        border: "1px solid #f5c6cb",
-                        borderRadius: "4px",
-                        fontFamily: "Arial, sans-serif",
-                    } }, "The first column contains empty values. Please ensure all titles are populated before rendering the table."));
-                return;
-            }
+            // Note: mainKey is already defined above
             // Create nested data entries
+            // Process all rows, but only add to map if the main value is valid (matches filtered data)
+            const validMainKeys = new Set(data.map((row) => { var _a; return String((_a = row[mainKey]) !== null && _a !== void 0 ? _a : ""); }));
+            const processedNestedKeys = new Set(); // Track which keys we've already processed for nested columns
             mainCategories[0].values.forEach((mainValue, index) => {
-                const nestedRow = {};
-                // Add main category values for reference
-                mainCategories.forEach((category) => {
-                    nestedRow[category.source.displayName] = category.values[index];
-                });
-                // Add nested category values
-                nestedCategories.forEach((category) => {
-                    nestedRow[category.source.displayName] = category.values[index];
-                });
-                // Use the main value as key to group nested data
                 const key = String(mainValue !== null && mainValue !== void 0 ? mainValue : "");
-                if (!nestedDataMap.has(key)) {
-                    nestedDataMap.set(key, []);
+                // Only process if this key is in our filtered data
+                if (!validMainKeys.has(key)) {
+                    return; // Skip rows with empty/invalid main keys
                 }
-                nestedDataMap.get(key).push(nestedRow);
+                // For nested columns, only process the first occurrence of each key to avoid duplicates
+                // (since nested columns are typically the same for all rows with the same pest name)
+                if (!processedNestedKeys.has(key)) {
+                    processedNestedKeys.add(key);
+                    const nestedRow = {};
+                    // Add main category values for reference
+                    mainCategories.forEach((category) => {
+                        nestedRow[category.source.displayName] = category.values[index];
+                    });
+                    // Add nested category values
+                    nestedCategories.forEach((category) => {
+                        nestedRow[category.source.displayName] = category.values[index];
+                    });
+                    // Use the main value as key to group nested data
+                    nestedDataMap.set(key, [nestedRow]);
+                }
             });
+            // Process nested table data separately
+            // When data comes from a related table, Power BI expands the data
+            // We need to match based on the relationship key (e.g., PestName)
+            if (nestedTableCategories.length > 0) {
+                const mainCategoryLength = ((_f = (_e = mainCategories[0]) === null || _e === void 0 ? void 0 : _e.values) === null || _f === void 0 ? void 0 : _f.length) || 0;
+                const nestedTableCategoryLength = ((_h = (_g = nestedTableCategories[0]) === null || _g === void 0 ? void 0 : _g.values) === null || _h === void 0 ? void 0 : _h.length) || 0;
+                console.log("Nested table processing:", {
+                    mainCategoryLength,
+                    nestedTableCategoryLength,
+                    mainKey,
+                    nestedTableColumnNames: nestedTableCategories.map((c) => c.source.displayName),
+                    nestedTableSourceTables: nestedTableCategories.map((c) => { var _a, _b; return ((_a = c.source) === null || _a === void 0 ? void 0 : _a.queryName) || ((_b = c.source) === null || _b === void 0 ? void 0 : _b.displayName); }),
+                });
+                // Strategy: Always use relationship key matching for nested table data
+                // The relationship key should match the mainKey (e.g., "PestName")
+                // This works whether data comes from same table or related table
+                const relationshipKeyName = mainKey;
+                // Check if any nested table category matches the relationship key name
+                // Try exact match first, then case-insensitive, then check if it's in the source table name
+                let relationshipCategoryIndex = nestedTableCategories.findIndex((cat) => cat.source.displayName === relationshipKeyName);
+                // If not found, try case-insensitive match
+                if (relationshipCategoryIndex < 0) {
+                    relationshipCategoryIndex = nestedTableCategories.findIndex((cat) => {
+                        var _a;
+                        return ((_a = cat.source.displayName) === null || _a === void 0 ? void 0 : _a.toLowerCase()) ===
+                            relationshipKeyName.toLowerCase();
+                    });
+                }
+                // If still not found, check if the main key value appears in any nested table row
+                // by comparing values from the first main category with nested table values
+                console.log("Relationship matching:", {
+                    relationshipKeyName,
+                    relationshipCategoryIndex,
+                    foundInNestedTable: relationshipCategoryIndex >= 0,
+                    nestedTableColumnNames: nestedTableCategories.map((c) => c.source.displayName),
+                });
+                // Process all nested table rows
+                // When lengths match, Power BI has expanded the data - each main row is repeated for each related row
+                // We need to match by getting the main key value at each index
+                for (let i = 0; i < nestedTableCategoryLength; i++) {
+                    const nestedTableRow = {};
+                    let relationshipValue = null;
+                    // Add nested table category values
+                    nestedTableCategories.forEach((category) => {
+                        const value = category.values[i];
+                        nestedTableRow[category.source.displayName] = value;
+                    });
+                    // Get the relationship value - this is the key to match with main table rows
+                    if (relationshipCategoryIndex >= 0) {
+                        // Found a column that matches the relationship key name (e.g., PestName in Publications table)
+                        relationshipValue =
+                            nestedTableCategories[relationshipCategoryIndex].values[i];
+                    }
+                    else {
+                        // Relationship key column not found in nested table
+                        // When lengths match, Power BI has expanded the data - use the main category value at this index
+                        // This matches each nested table row to its corresponding main table row
+                        if (i < mainCategoryLength) {
+                            relationshipValue = mainCategories[0].values[i];
+                        }
+                    }
+                    // Use the relationship value as the key to match with main table rows
+                    const key = relationshipValue != null ? String(relationshipValue) : null;
+                    // Only add if we have a valid key (skip null/undefined/empty)
+                    // Also check if this key is in our filtered valid data
+                    if (key && key !== "null" && key !== "undefined" && key.trim() !== "") {
+                        // Only add if the key exists in our filtered data
+                        if (validMainKeys.has(key)) {
+                            if (!nestedTableDataMap.has(key)) {
+                                nestedTableDataMap.set(key, []);
+                            }
+                            nestedTableDataMap.get(key).push(nestedTableRow);
+                        }
+                    }
+                }
+                // Log detailed information about the matching
+                const keysArray = Array.from(nestedTableDataMap.keys());
+                const rowsPerKey = Array.from(nestedTableDataMap.entries()).map(([key, rows]) => ({
+                    key,
+                    count: rows.length,
+                }));
+                console.log("Nested table data map:", {
+                    totalKeys: keysArray.length,
+                    totalRows: Array.from(nestedTableDataMap.values()).reduce((sum, arr) => sum + arr.length, 0),
+                    validMainKeysCount: validMainKeys.size,
+                    sampleKeys: keysArray.slice(0, 5),
+                    rowsPerKeySample: rowsPerKey.slice(0, 10),
+                });
+                // Check if we're missing any valid main keys
+                const missingKeys = Array.from(validMainKeys).filter((key) => !nestedTableDataMap.has(key));
+                if (missingKeys.length > 0) {
+                    console.warn("Some valid main keys have no nested table data:", missingKeys.slice(0, 10));
+                }
+                // Process nested table nested columns data
+                // Group by the nested table's first column (e.g., PUBID)
+                if (nestedTableNestedCategories.length > 0 &&
+                    nestedTableCategories.length > 0) {
+                    const nestedTableFirstColumnName = nestedTableCategories[0].source.displayName;
+                    const nestedTableNestedCategoryLength = ((_k = (_j = nestedTableNestedCategories[0]) === null || _j === void 0 ? void 0 : _j.values) === null || _k === void 0 ? void 0 : _k.length) || 0;
+                    const nestedTableCategoryLength = ((_m = (_l = nestedTableCategories[0]) === null || _l === void 0 ? void 0 : _l.values) === null || _m === void 0 ? void 0 : _m.length) || 0;
+                    console.log("Processing nested table nested columns:", {
+                        nestedTableFirstColumnName,
+                        nestedTableNestedCategoryLength,
+                        nestedTableCategoryLength,
+                        nestedTableNestedColumnNames: nestedTableNestedCategories.map((c) => c.source.displayName),
+                    });
+                    // Check if nested table nested categories have the same length as nested table categories
+                    // If they match, use index-based matching (data is aligned)
+                    // If they don't match, we need to match by the relationship key
+                    if (nestedTableNestedCategoryLength === nestedTableCategoryLength) {
+                        // Lengths match - data is aligned by index
+                        // Process and group by the nested table's first column value at each index
+                        const processedNestedTableNestedKeys = new Set();
+                        for (let i = 0; i < nestedTableNestedCategoryLength; i++) {
+                            // Get the nested table row key from the nested table categories at this index
+                            const nestedTableRowKey = nestedTableCategories[0].values[i] != null
+                                ? String(nestedTableCategories[0].values[i])
+                                : null;
+                            if (!nestedTableRowKey ||
+                                nestedTableRowKey === "null" ||
+                                nestedTableRowKey === "undefined" ||
+                                nestedTableRowKey.trim() === "") {
+                                continue;
+                            }
+                            // Only process the first occurrence of each key to avoid duplicates
+                            if (!processedNestedTableNestedKeys.has(nestedTableRowKey)) {
+                                processedNestedTableNestedKeys.add(nestedTableRowKey);
+                                const nestedTableNestedRow = {};
+                                // Add nested table nested category values
+                                nestedTableNestedCategories.forEach((category) => {
+                                    const value = category.values[i];
+                                    nestedTableNestedRow[category.source.displayName] = value;
+                                });
+                                // Group by the nested table row key
+                                nestedTableNestedDataMap.set(nestedTableRowKey, [
+                                    nestedTableNestedRow,
+                                ]);
+                            }
+                        }
+                    }
+                    else {
+                        // Different lengths - need to match by relationship key
+                        // Look for the nested table's first column in nested table nested categories
+                        const nestedTableKeyIndex = nestedTableNestedCategories.findIndex((cat) => cat.source.displayName === nestedTableFirstColumnName);
+                        // Process all nested table nested column rows
+                        for (let i = 0; i < nestedTableNestedCategoryLength; i++) {
+                            const nestedTableNestedRow = {};
+                            let nestedTableRowKey = null;
+                            // Add nested table nested category values
+                            nestedTableNestedCategories.forEach((category) => {
+                                const value = category.values[i];
+                                nestedTableNestedRow[category.source.displayName] = value;
+                                // Check if this is the nested table's first column (the key)
+                                if (category.source.displayName === nestedTableFirstColumnName) {
+                                    nestedTableRowKey = value != null ? String(value) : null;
+                                }
+                            });
+                            // If we didn't find the key in nested table nested categories, skip this row
+                            if (!nestedTableRowKey) {
+                                continue;
+                            }
+                            // Group by the nested table row key
+                            if (nestedTableRowKey !== "null" &&
+                                nestedTableRowKey !== "undefined" &&
+                                nestedTableRowKey.trim() !== "") {
+                                if (!nestedTableNestedDataMap.has(nestedTableRowKey)) {
+                                    nestedTableNestedDataMap.set(nestedTableRowKey, []);
+                                }
+                                nestedTableNestedDataMap
+                                    .get(nestedTableRowKey)
+                                    .push(nestedTableNestedRow);
+                            }
+                        }
+                    }
+                    console.log("Nested table nested columns processing:", {
+                        nestedTableFirstColumnName,
+                        nestedTableNestedCategoryLength,
+                        totalKeys: Array.from(nestedTableNestedDataMap.keys()).length,
+                        totalRows: Array.from(nestedTableNestedDataMap.values()).reduce((sum, arr) => sum + arr.length, 0),
+                        sampleKeys: Array.from(nestedTableNestedDataMap.keys()).slice(0, 5),
+                    });
+                }
+            }
             // Function to get nested data for a row
             const getNestedDataForRow = (row) => {
                 var _a;
@@ -14762,10 +15156,44 @@ class Visual {
                 const nestedData = nestedDataMap.get(key) || [];
                 return nestedData;
             };
+            // Function to get nested table data for a row
+            const getNestedTableDataForRow = (row) => {
+                var _a;
+                const key = String((_a = row[mainKey]) !== null && _a !== void 0 ? _a : "");
+                const nestedTableData = nestedTableDataMap.get(key) || [];
+                return nestedTableData;
+            };
+            // Function to get nested table nested columns data for a nested table row
+            // This will be called from within the nested table component
+            const getNestedTableNestedDataForRow = (nestedTableRow) => {
+                var _a;
+                if (nestedTableColumns.length === 0 ||
+                    nestedTableNestedColumns.length === 0) {
+                    return [];
+                }
+                // Use the first column of the nested table as the key (e.g., PUBID)
+                const nestedTableKey = nestedTableColumns[0].accessorKey;
+                const key = String((_a = nestedTableRow[nestedTableKey]) !== null && _a !== void 0 ? _a : "");
+                const nestedTableNestedData = nestedTableNestedDataMap.get(key) || [];
+                console.log("Getting nested table nested columns for row:", {
+                    nestedTableKey,
+                    key,
+                    rowData: nestedTableRow,
+                    foundData: nestedTableNestedData.length,
+                    allKeys: Array.from(nestedTableNestedDataMap.keys()).slice(0, 5),
+                });
+                return nestedTableNestedData;
+            };
             // Get current selections
             const selections = yield this.selectionManager.getSelectionIds();
             // Render the table
-            this.root.render(react__WEBPACK_IMPORTED_MODULE_0__.createElement(_components_Table__WEBPACK_IMPORTED_MODULE_3__/* .Table */ .X, { columns: columns, data: data, nestedData: getNestedDataForRow, nestedColumns: nestedColumns, selectionManager: this.selectionManager, dataView: dataView, host: this.host }));
+            this.root.render(react__WEBPACK_IMPORTED_MODULE_0__.createElement(_components_Table__WEBPACK_IMPORTED_MODULE_3__/* .Table */ .X, { columns: columns, data: data, nestedData: getNestedDataForRow, nestedColumns: nestedColumns, nestedTableData: nestedTableCategories.length > 0
+                    ? getNestedTableDataForRow
+                    : undefined, nestedTableColumns: nestedTableColumns.length > 0 ? nestedTableColumns : undefined, nestedTableNestedData: nestedTableNestedCategories.length > 0
+                    ? getNestedTableNestedDataForRow
+                    : undefined, nestedTableNestedColumns: nestedTableNestedColumns.length > 0
+                    ? nestedTableNestedColumns
+                    : undefined, selectionManager: this.selectionManager, dataView: dataView, host: this.host }));
         });
     }
     transformData(categories) {

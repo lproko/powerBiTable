@@ -3,6 +3,43 @@ import powerbi from "powerbi-visuals-api";
 import { IoFilter } from "react-icons/io5";
 import { IoIosArrowUp, IoIosArrowDown } from "react-icons/io";
 import { FaFilterCircleXmark } from "react-icons/fa6";
+
+// Helper function to check if a string is a URL
+const isUrl = (str: string): boolean => {
+  try {
+    const url = new URL(str);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+// Link icon SVG - inline SVG for reliability
+const LinkIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{ display: "inline-block", verticalAlign: "middle" }}
+  >
+    <path
+      d="M10 13C10.4295 13.5741 10.9774 14.0491 11.6066 14.3929C12.2357 14.7367 12.9315 14.9411 13.6466 14.9923C14.3618 15.0435 15.0796 14.9403 15.7513 14.6897C16.4231 14.4392 17.0331 14.047 17.54 13.54L20.54 10.54C21.4508 9.59695 21.9548 8.33394 21.9434 7.02296C21.932 5.71198 21.4061 4.45791 20.4791 3.53087C19.5521 2.60383 18.298 2.07799 16.987 2.0666C15.676 2.0552 14.413 2.55918 13.47 3.47L11.75 5.18"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M14 11C13.5705 10.4259 13.0226 9.95085 12.3934 9.60707C11.7643 9.26329 11.0685 9.05886 10.3534 9.00766C9.63821 8.95645 8.92037 9.05972 8.24865 9.31026C7.57694 9.5608 6.96687 9.95302 6.46 10.46L3.46 13.46C2.54918 14.403 2.04519 15.6661 2.05659 16.977C2.06798 18.288 2.59382 19.5421 3.52086 20.4691C4.44791 21.3962 5.70198 21.922 7.01296 21.9334C8.32394 21.9448 9.58695 21.4408 10.53 20.53L12.24 18.82"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 import {
   useReactTable,
   getCoreRowModel,
@@ -34,9 +71,20 @@ interface TableProps {
     header: string;
     accessorKey: string;
   }[];
+  nestedTableData?: (row: any) => any[];
+  nestedTableColumns?: {
+    header: string;
+    accessorKey: string;
+  }[];
+  nestedTableNestedData?: (row: any) => any[];
+  nestedTableNestedColumns?: {
+    header: string;
+    accessorKey: string;
+  }[];
   selectionManager?: powerbi.extensibility.ISelectionManager;
   dataView?: powerbi.DataView;
   host?: powerbi.extensibility.visual.IVisualHost;
+  isNestedTable?: boolean;
 }
 
 // Custom filter functions
@@ -194,11 +242,21 @@ const SvgImageCell: React.FC<{ url: string }> = ({ url }) => {
   const [imageError, setImageError] = useState(false);
   const [svgContent, setSvgContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [fetchAttempted, setFetchAttempted] = useState(false);
 
-  // Try to fetch SVG content proactively as a backup
+  // Reset state when URL changes
   useEffect(() => {
-    if (!svgContent && !isLoading) {
+    setImageError(false);
+    setSvgContent(null);
+    setIsLoading(false);
+    setFetchAttempted(false);
+  }, [url]);
+
+  // Try to fetch SVG content proactively as a backup (only once per URL)
+  useEffect(() => {
+    if (!svgContent && !isLoading && !fetchAttempted && url) {
       setIsLoading(true);
+      setFetchAttempted(true);
       fetch(url)
         .then((response) => {
           if (response.ok) {
@@ -212,9 +270,10 @@ const SvgImageCell: React.FC<{ url: string }> = ({ url }) => {
         })
         .catch(() => {
           setIsLoading(false);
+          // Don't retry - mark as attempted and failed
         });
     }
-  }, [url, svgContent, isLoading]);
+  }, [url, svgContent, isLoading, fetchAttempted]);
 
   // If we have SVG content, render it inline
   if (svgContent) {
@@ -305,7 +364,7 @@ const SvgImageCell: React.FC<{ url: string }> = ({ url }) => {
   );
 };
 
-// Nested table component
+// Nested table component - renders nested columns as key-value pairs and nested table as full table
 const NestedTable: React.FC<{
   rowData: any;
   nestedData: any[] | ((row: any) => any[]);
@@ -313,116 +372,230 @@ const NestedTable: React.FC<{
     header: string;
     accessorKey: string;
   }[];
-}> = ({ rowData, nestedData: nestedDataProp, nestedColumns }) => {
+  nestedTableData?: (row: any) => any[];
+  nestedTableColumns?: {
+    header: string;
+    accessorKey: string;
+  }[];
+  nestedTableNestedData?: (row: any) => any[];
+  nestedTableNestedColumns?: {
+    header: string;
+    accessorKey: string;
+  }[];
+  selectionManager?: powerbi.extensibility.ISelectionManager;
+  dataView?: powerbi.DataView;
+  host?: powerbi.extensibility.visual.IVisualHost;
+}> = ({
+  rowData,
+  nestedData: nestedDataProp,
+  nestedColumns,
+  nestedTableData,
+  nestedTableColumns,
+  nestedTableNestedData,
+  nestedTableNestedColumns,
+  selectionManager,
+  dataView,
+  host,
+}) => {
   // Get the actual nested data
   const actualNestedData =
     typeof nestedDataProp === "function"
       ? nestedDataProp(rowData)
       : nestedDataProp;
 
-  // If we have nested columns and data, use them
-  if (nestedColumns && actualNestedData && actualNestedData.length > 0) {
-    return (
-      <div
-        style={{ padding: "24px", backgroundColor: "white", margin: "0 16px" }}
-      >
-        {actualNestedData.map((item, index) => (
-          <div key={index} style={{ marginBottom: "24px" }}>
-            {nestedColumns.map((column, colIndex) => {
-              const cellValue = item[column.accessorKey];
-              const cellValueStr = String(cellValue || "");
-              const isYes = cellValueStr.toLowerCase() === "yes";
-              const isNo = cellValueStr.toLowerCase() === "no";
-              const isSvgUrl =
-                colIndex > 0 &&
-                cellValueStr.startsWith(
-                  "https://raw.githubusercontent.com/hypertechsa"
+  // Get nested table data if available
+  const actualNestedTableData = nestedTableData ? nestedTableData(rowData) : [];
+
+  // Check if we have both nested columns and nested table
+  const hasNestedColumns =
+    nestedColumns && actualNestedData && actualNestedData.length > 0;
+  const hasNestedTable =
+    nestedTableColumns &&
+    actualNestedTableData &&
+    actualNestedTableData.length > 0;
+
+  return (
+    <div
+      style={{
+        padding: "24px",
+        backgroundColor: "white",
+        margin: "0 16px",
+        display: "flex",
+        gap: "24px",
+        alignItems: "flex-start",
+        width: "100%",
+        maxWidth: "100%",
+        boxSizing: "border-box",
+        overflow: "hidden",
+      }}
+    >
+      {/* Render nested columns as key-value pairs - 2 columns layout */}
+      {hasNestedColumns && (
+        <div
+          style={{
+            width: hasNestedTable ? "40%" : "100%",
+            flexShrink: 0,
+            maxWidth: hasNestedTable ? "40%" : "100%",
+            overflow: "hidden",
+            boxSizing: "border-box",
+          }}
+        >
+          {actualNestedData.map((item, index) => (
+            <div key={index} style={{ marginBottom: "24px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "16px",
+                }}
+              >
+                {nestedColumns.map((column, colIndex) => {
+                  const cellValue = item[column.accessorKey];
+                  const cellValueStr = String(cellValue || "");
+                  const isYes = cellValueStr.toLowerCase() === "yes";
+                  const isNo = cellValueStr.toLowerCase() === "no";
+                  const isSvgUrl =
+                    colIndex > 0 &&
+                    cellValueStr.startsWith(
+                      "https://raw.githubusercontent.com/hypertechsa"
+                    );
+
+                  return (
+                    <div
+                      key={column.accessorKey}
+                      style={{ marginBottom: "16px" }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: "bold",
+                          color: "#495057",
+                          marginBottom: "4px",
+                          fontFamily: "Arial, sans-serif",
+                        }}
+                      >
+                        {column.header}:
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          color: "#6c757d",
+                          paddingLeft: "12px",
+                          fontFamily: "Arial, sans-serif",
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                      >
+                        {colIndex === 0 ? (
+                          // First column: show text as is
+                          cellValue
+                        ) : isSvgUrl ? (
+                          // If it's an SVG URL, show the image
+                          <SvgImageCell url={cellValueStr} />
+                        ) : isYes ? (
+                          // If text is "Yes", apply Yes styling
+                          <span
+                            style={{
+                              backgroundColor: "#EAEAEA",
+                              color: "#222222",
+                              width: "44px",
+                              height: "22px",
+                              padding: "4px 12px",
+                              borderRadius: "6px",
+                              fontWeight: "500",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontFamily: "Arial, sans-serif",
+                              boxSizing: "border-box",
+                            }}
+                          >
+                            {cellValue}
+                          </span>
+                        ) : isNo ? (
+                          // If text is "No", apply No styling
+                          <span
+                            style={{
+                              backgroundColor: "#22294B",
+                              color: "#FFFFFF",
+                              width: "40px",
+                              height: "22px",
+                              padding: "4px 12px",
+                              borderRadius: "6px",
+                              fontWeight: "500",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontFamily: "Arial, sans-serif",
+                              boxSizing: "border-box",
+                            }}
+                          >
+                            {cellValue}
+                          </span>
+                        ) : (
+                          // Otherwise, show text as is
+                          cellValue
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Render nested table as full table component - 50% width */}
+      {hasNestedTable &&
+        (() => {
+          // Filter out rows with empty first column values
+          const firstColumnKey = nestedTableColumns[0]?.accessorKey;
+          const filteredNestedTableData = firstColumnKey
+            ? actualNestedTableData.filter((row) => {
+                const value = row?.[firstColumnKey];
+                return (
+                  value !== null &&
+                  value !== undefined &&
+                  String(value).trim() !== ""
                 );
+              })
+            : actualNestedTableData;
 
-              return (
-                <div key={column.accessorKey} style={{ marginBottom: "16px" }}>
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: "bold",
-                      color: "#495057",
-                      marginBottom: "4px",
-                      fontFamily: "Arial, sans-serif",
-                    }}
-                  >
-                    {column.header}:
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: "#6c757d",
-                      paddingLeft: "12px",
-                      fontFamily: "Arial, sans-serif",
-                      display: "flex",
-                      alignItems: "center",
-                    }}
-                  >
-                    {colIndex === 0 ? (
-                      // First column: show text as is
-                      cellValue
-                    ) : isSvgUrl ? (
-                      // If it's an SVG URL, show the image
-                      <SvgImageCell url={cellValueStr} />
-                    ) : isYes ? (
-                      // If text is "Yes", apply Yes styling
-                      <span
-                        style={{
-                          backgroundColor: "#EAEAEA",
-                          color: "#222222",
-                          width: "44px",
-                          height: "22px",
-                          padding: "4px 12px",
-                          borderRadius: "6px",
-                          fontWeight: "500",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontFamily: "Arial, sans-serif",
-                          boxSizing: "border-box",
-                        }}
-                      >
-                        {cellValue}
-                      </span>
-                    ) : isNo ? (
-                      // If text is "No", apply No styling
-                      <span
-                        style={{
-                          backgroundColor: "#22294B",
-                          color: "#FFFFFF",
-                          width: "40px",
-                          height: "22px",
-                          padding: "4px 12px",
-                          borderRadius: "6px",
-                          fontWeight: "500",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontFamily: "Arial, sans-serif",
-                          boxSizing: "border-box",
-                        }}
-                      >
-                        {cellValue}
-                      </span>
-                    ) : (
-                      // Otherwise, show text as is
-                      cellValue
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    );
-  }
+          // Only render if we have valid data after filtering
+          if (filteredNestedTableData.length === 0) {
+            return null;
+          }
 
-  return null;
+          return (
+            <div
+              style={{
+                width: hasNestedColumns ? "50%" : "100%",
+                flexShrink: 0,
+                maxWidth: hasNestedColumns ? "50%" : "100%",
+                overflow: "hidden",
+                boxSizing: "border-box",
+              }}
+            >
+              <Table
+                columns={nestedTableColumns}
+                data={filteredNestedTableData}
+                nestedData={nestedTableNestedData || (() => [])} // Nested tables can have nested columns
+                nestedColumns={nestedTableNestedColumns} // Nested tables can have nested columns
+                nestedTableData={undefined} // Prevent recursion - nested tables cannot have nested tables
+                nestedTableColumns={undefined}
+                nestedTableNestedData={undefined} // Prevent recursion - nested tables cannot have nested table nested columns
+                nestedTableNestedColumns={undefined}
+                selectionManager={selectionManager}
+                dataView={dataView}
+                host={host}
+                isNestedTable={true}
+              />
+            </div>
+          );
+        })()}
+    </div>
+  );
 };
 
 export const Table: React.FC<TableProps> = ({
@@ -430,9 +603,14 @@ export const Table: React.FC<TableProps> = ({
   data,
   nestedData,
   nestedColumns,
+  nestedTableData,
+  nestedTableColumns,
+  nestedTableNestedData,
+  nestedTableNestedColumns,
   selectionManager,
   dataView,
   host,
+  isNestedTable = false,
 }) => {
   const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
   const [visibleRows, setVisibleRows] = useState(20);
@@ -712,15 +890,21 @@ export const Table: React.FC<TableProps> = ({
     }
   };
 
+  const containerStyle: React.CSSProperties = {
+    width: "100%",
+    height: "100%",
+    display: "flex",
+    flexDirection: "column",
+  };
+
+  if (isNestedTable) {
+    containerStyle.border = "1px solid #e0e0e0";
+    containerStyle.borderRadius = "4px";
+    containerStyle.backgroundColor = "#fafafa";
+  }
+
   return (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div style={containerStyle}>
       <div
         ref={tableRef}
         style={{ flex: 1, overflow: "auto" }}
@@ -729,9 +913,11 @@ export const Table: React.FC<TableProps> = ({
         <table
           style={{
             width: "100%",
+            maxWidth: "100%",
             borderCollapse: "collapse",
             fontFamily: "Arial, sans-serif",
             position: "relative",
+            ...(isNestedTable ? {} : { tableLayout: "fixed" }),
           }}
         >
           <thead
@@ -743,20 +929,6 @@ export const Table: React.FC<TableProps> = ({
             }}
           >
             <tr>
-              <th
-                style={{
-                  width: "40px",
-                  padding: "12px 8px",
-                  borderBottom: "1px solid #ddd",
-                  backgroundColor: "#F6F6F6",
-                  fontSize: "14px",
-                  fontWeight: "bold",
-                  fontFamily: "Arial, sans-serif",
-                  textAlign: "center",
-                }}
-              >
-                {/* Individual row selection column - no select all */}
-              </th>
               {columns.map((column, index) => (
                 <th
                   key={column.accessorKey}
@@ -1065,47 +1237,28 @@ export const Table: React.FC<TableProps> = ({
                   </div>
                 </th>
               ))}
-              <th
-                style={{
-                  width: "40px",
-                  padding: "12px 8px",
-                  borderBottom: "1px solid #ddd",
-                  backgroundColor: "#F6F6F6",
-                  fontSize: "14px",
-                  fontWeight: "bold",
-                  fontFamily: "Arial, sans-serif",
-                  textAlign: "center",
-                }}
-              />
+              {/* Show expand column if has nested data/columns (root table) or nested columns (nested table) */}
+              {((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
+                (isNestedTable && nestedColumns)) && (
+                <th
+                  style={{
+                    width: "40px",
+                    padding: "12px 8px",
+                    borderBottom: "1px solid #ddd",
+                    backgroundColor: "#F6F6F6",
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                    fontFamily: "Arial, sans-serif",
+                    textAlign: "center",
+                  }}
+                />
+              )}
             </tr>
           </thead>
           <tbody>
             {currentData.map((row, index) => (
               <React.Fragment key={index}>
                 <tr>
-                  <td
-                    style={{
-                      padding: "12px 8px",
-                      borderBottom: "1px solid #ddd",
-                      textAlign: "center",
-                      fontSize: "14px",
-                      fontFamily: "Arial, sans-serif",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedRows.has(getRowIdentifier(row))}
-                      onChange={(e) => {
-                        handleRowSelection(row, e.target.checked);
-                      }}
-                      style={{
-                        cursor: "pointer",
-                        accentColor: "#22294d",
-                        width: "16px",
-                        height: "16px",
-                      }}
-                    />
-                  </td>
                   {columns.map((column, columnIndex) => {
                     const cellValue = row[column.accessorKey];
                     const cellValueStr = String(cellValue || "");
@@ -1118,6 +1271,9 @@ export const Table: React.FC<TableProps> = ({
                       cellValueStr.startsWith(
                         "https://raw.githubusercontent.com/hypertechsa"
                       );
+
+                    // Check if the value is a URL (for nested tables)
+                    const cellIsUrl = isNestedTable && isUrl(cellValueStr);
 
                     return (
                       <td
@@ -1138,6 +1294,25 @@ export const Table: React.FC<TableProps> = ({
                         {columnIndex === 0 ? (
                           // First column: show text as is
                           cellValue
+                        ) : cellIsUrl ? (
+                          // For nested tables: if it's a URL, show clickable link icon
+                          <a
+                            href={cellValueStr}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                              textDecoration: "none",
+                              color: "#0078d4",
+                            }}
+                            title={cellValueStr}
+                          >
+                            <LinkIcon size={16} />
+                          </a>
                         ) : isSvgUrl ? (
                           // For columns after the first: if it's an SVG URL, show the image
                           <SvgImageCell url={cellValueStr} />
@@ -1188,37 +1363,205 @@ export const Table: React.FC<TableProps> = ({
                       </td>
                     );
                   })}
-                  <td
-                    style={{
-                      padding: "12px 8px",
-                      borderBottom: "1px solid #ddd",
-                      textAlign: "center",
-                      cursor: "pointer",
-                      fontSize: "16px",
-                      fontFamily: "Arial, sans-serif",
-                    }}
-                    onClick={() =>
-                      toggleRow(getOriginalDataIndex(row).toString())
-                    }
-                  >
-                    {expanded[getOriginalDataIndex(row).toString()] ? (
-                      <IoIosArrowUp />
-                    ) : (
-                      <IoIosArrowDown />
-                    )}
-                  </td>
-                </tr>
-                {expanded[getOriginalDataIndex(row).toString()] && (
-                  <tr>
-                    <td colSpan={columns.length + 2}>
-                      <NestedTable
-                        rowData={row}
-                        nestedData={nestedData}
-                        nestedColumns={nestedColumns}
-                      />
+                  {/* Show expand column if has nested data/columns (root table) or nested columns (nested table) */}
+                  {((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
+                    (isNestedTable && nestedColumns)) && (
+                    <td
+                      style={{
+                        padding: "12px 8px",
+                        borderBottom: "1px solid #ddd",
+                        textAlign: "center",
+                        cursor: "pointer",
+                        fontSize: "16px",
+                        fontFamily: "Arial, sans-serif",
+                      }}
+                      onClick={() =>
+                        toggleRow(getOriginalDataIndex(row).toString())
+                      }
+                    >
+                      {expanded[getOriginalDataIndex(row).toString()] ? (
+                        <IoIosArrowUp />
+                      ) : (
+                        <IoIosArrowDown />
+                      )}
                     </td>
-                  </tr>
-                )}
+                  )}
+                </tr>
+                {/* Root table: show nested columns and nested table */}
+                {!isNestedTable &&
+                  expanded[getOriginalDataIndex(row).toString()] && (
+                    <tr>
+                      <td
+                        colSpan={
+                          columns.length +
+                          (nestedColumns || nestedTableColumns ? 1 : 0)
+                        }
+                        style={{
+                          padding: 0,
+                          width: "100%",
+                          maxWidth: "100%",
+                          overflow: "hidden",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: "100%",
+                            maxWidth: "100%",
+                            overflow: "hidden",
+                            boxSizing: "border-box",
+                          }}
+                        >
+                          <NestedTable
+                            rowData={row}
+                            nestedData={nestedData}
+                            nestedColumns={nestedColumns}
+                            nestedTableData={nestedTableData}
+                            nestedTableColumns={nestedTableColumns}
+                            nestedTableNestedData={nestedTableNestedData}
+                            nestedTableNestedColumns={nestedTableNestedColumns}
+                            selectionManager={selectionManager}
+                            dataView={dataView}
+                            host={host}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                {/* Nested table: show nested columns only (no nested tables) */}
+                {isNestedTable &&
+                  nestedColumns &&
+                  expanded[getOriginalDataIndex(row).toString()] && (
+                    <tr>
+                      <td
+                        colSpan={columns.length + 1}
+                        style={{
+                          padding: "24px",
+                          backgroundColor: "#fafafa",
+                          borderTop: "1px solid #e0e0e0",
+                          width: "100%",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr",
+                            gap: "16px",
+                            width: "100%",
+                          }}
+                        >
+                          {(() => {
+                            const rowNestedData =
+                              typeof nestedData === "function"
+                                ? nestedData(row)
+                                : nestedData || [];
+
+                            // If no nested data for this row, return empty
+                            if (!rowNestedData || rowNestedData.length === 0) {
+                              return null;
+                            }
+
+                            return rowNestedData.map(
+                              (item: any, itemIndex: number) =>
+                                nestedColumns.map((column, colIndex) => {
+                                  const cellValue = item[column.accessorKey];
+                                  const cellValueStr = String(cellValue || "");
+                                  const isYes =
+                                    cellValueStr.toLowerCase() === "yes";
+                                  const isNo =
+                                    cellValueStr.toLowerCase() === "no";
+                                  const isSvgUrl =
+                                    colIndex > 0 &&
+                                    cellValueStr.startsWith(
+                                      "https://raw.githubusercontent.com/hypertechsa"
+                                    );
+
+                                  return (
+                                    <div
+                                      key={`${itemIndex}-${column.accessorKey}`}
+                                      style={{
+                                        marginBottom: "16px",
+                                        width: "100%",
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          fontSize: "14px",
+                                          fontWeight: "bold",
+                                          color: "#495057",
+                                          marginBottom: "4px",
+                                          fontFamily: "Arial, sans-serif",
+                                          width: "100%",
+                                        }}
+                                      >
+                                        {column.header}:
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontSize: "14px",
+                                          color: "#6c757d",
+                                          paddingLeft: "12px",
+                                          fontFamily: "Arial, sans-serif",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          width: "100%",
+                                        }}
+                                      >
+                                        {colIndex === 0 ? (
+                                          cellValue
+                                        ) : isSvgUrl ? (
+                                          <SvgImageCell url={cellValueStr} />
+                                        ) : isYes ? (
+                                          <span
+                                            style={{
+                                              backgroundColor: "#EAEAEA",
+                                              color: "#222222",
+                                              width: "44px",
+                                              height: "22px",
+                                              padding: "4px 12px",
+                                              borderRadius: "6px",
+                                              fontWeight: "500",
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              fontFamily: "Arial, sans-serif",
+                                              boxSizing: "border-box",
+                                            }}
+                                          >
+                                            {cellValue}
+                                          </span>
+                                        ) : isNo ? (
+                                          <span
+                                            style={{
+                                              backgroundColor: "#22294B",
+                                              color: "#FFFFFF",
+                                              width: "40px",
+                                              height: "22px",
+                                              padding: "4px 12px",
+                                              borderRadius: "6px",
+                                              fontWeight: "500",
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              fontFamily: "Arial, sans-serif",
+                                              boxSizing: "border-box",
+                                            }}
+                                          >
+                                            {cellValue}
+                                          </span>
+                                        ) : (
+                                          cellValue
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                            );
+                          })()}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
               </React.Fragment>
             ))}
           </tbody>

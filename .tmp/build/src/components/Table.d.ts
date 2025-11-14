@@ -17,9 +17,20 @@ interface TableProps {
         header: string;
         accessorKey: string;
     }[];
+    nestedTableData?: (row: any) => any[];
+    nestedTableColumns?: {
+        header: string;
+        accessorKey: string;
+    }[];
+    nestedTableNestedData?: (row: any) => any[];
+    nestedTableNestedColumns?: {
+        header: string;
+        accessorKey: string;
+    }[];
     selectionManager?: powerbi.extensibility.ISelectionManager;
     dataView?: powerbi.DataView;
     host?: powerbi.extensibility.visual.IVisualHost;
+    isNestedTable?: boolean;
 }
 export declare const Table: React.FC<TableProps>;
 export {};

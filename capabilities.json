@@ -9,6 +9,16 @@
       "displayName": "Nested Columns",
       "name": "nested",
       "kind": "Grouping"
+    },
+    {
+      "displayName": "Nested Table",
+      "name": "nestedTable",
+      "kind": "Grouping"
+    },
+    {
+      "displayName": "Nested Table Nested Columns",
+      "name": "nestedTableNested",
+      "kind": "Grouping"
     }
   ],
   "objects": {
@@ -66,6 +76,16 @@
               "bind": {
                 "to": "nested"
               }
+            },
+            {
+              "bind": {
+                "to": "nestedTable"
+              }
+            },
+            {
+              "bind": {
+                "to": "nestedTableNested"
+              }
             }
           ],
           "dataReductionAlgorithm": {
@@ -82,7 +102,7 @@
     {
       "name": "WebAccess",
       "essential": true,
-      "parameters": ["https://raw.githubusercontent.com/hypertechsa"]
+      "parameters": ["https://*.githubusercontent.com"]
     }
   ]
 }
