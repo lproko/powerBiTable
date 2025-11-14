@@ -3,6 +3,7 @@ import powerbi from "powerbi-visuals-api";
 import { IoFilter } from "react-icons/io5";
 import { IoIosArrowUp, IoIosArrowDown } from "react-icons/io";
 import { FaFilterCircleXmark } from "react-icons/fa6";
+import { MdPictureAsPdf } from "react-icons/md";
 
 // Helper function to check if a string is a URL
 const isUrl = (str: string): boolean => {
@@ -624,6 +625,10 @@ export const Table: React.FC<TableProps> = ({
   );
   const [showSearchMenu, setShowSearchMenu] = useState(false);
   const [showOperatorDropdown, setShowOperatorDropdown] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [showPrintView, setShowPrintView] = useState(false);
+  const [printViewHtml, setPrintViewHtml] = useState<string>("");
+  const [showDownloadOptions, setShowDownloadOptions] = useState(false);
   const searchMenuRef = useRef<HTMLDivElement>(null);
   const operatorDropdownRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -648,6 +653,83 @@ export const Table: React.FC<TableProps> = ({
       </div>
     );
   }
+
+  // Function to download HTML file
+  const downloadHTMLFile = () => {
+    if (!printViewHtml) return;
+
+    try {
+      // Create a blob with the HTML content
+      const blob = new Blob([printViewHtml], {
+        type: "text/html;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `table-export-${
+        new Date().toISOString().split("T")[0]
+      }.html`;
+
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the blob URL after a delay
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 100);
+
+      console.log("HTML file downloaded successfully");
+    } catch (error) {
+      console.error("Error downloading HTML file:", error);
+      setShowDownloadOptions(true);
+    }
+  };
+
+  // Function to copy HTML to clipboard
+  const copyHTMLToClipboard = async () => {
+    if (!printViewHtml) return;
+
+    try {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(printViewHtml);
+        console.log("HTML content copied to clipboard successfully!");
+        // Show the manual copy section as confirmation
+        setShowDownloadOptions(true);
+        return;
+      }
+
+      // Fallback: use textarea method
+      const textarea = document.createElement("textarea");
+      textarea.value = printViewHtml;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-999999px";
+      textarea.style.top = "-999999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+
+      try {
+        const successful = document.execCommand("copy");
+        if (successful) {
+          console.log("HTML content copied to clipboard successfully!");
+          setShowDownloadOptions(true);
+        } else {
+          throw new Error("Copy command failed");
+        }
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    } catch (error) {
+      console.error("Failed to copy to clipboard:", error);
+      // If all else fails, show the manual copy section
+      setShowDownloadOptions(true);
+    }
+  };
 
   // Close search menu when clicking outside
   useEffect(() => {
@@ -890,6 +972,148 @@ export const Table: React.FC<TableProps> = ({
     }
   };
 
+  // Export function using browser print (PDF export)
+  const handleExportToPDF = async () => {
+    if (!tableRef.current || isNestedTable) return; // Only export root table
+
+    setIsExporting(true);
+
+    // Store original expanded state (outside try block for error handling)
+    const originalExpanded = { ...expanded };
+    const originalVisibleRows = visibleRows;
+
+    try {
+      console.log("Starting print export...");
+
+      // Expand all rows
+      const allExpanded: { [key: string]: boolean } = {};
+      sortedData.forEach((row, index) => {
+        allExpanded[getOriginalDataIndex(row).toString()] = true;
+      });
+      setExpanded(allExpanded);
+
+      // Show all rows
+      setVisibleRows(sortedData.length);
+
+      // Wait for DOM to update
+      console.log("Waiting for DOM to update...");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Get the table element
+      const tableElement = tableRef.current.querySelector("table");
+      if (!tableElement) {
+        throw new Error("Table element not found");
+      }
+
+      console.log("Table element found, preparing for print...");
+
+      // Clone the table with all styles
+      const clonedTable = tableElement.cloneNode(true) as HTMLTableElement;
+
+      // Get inline styles from the original table
+      const tableStyles = Array.from(document.styleSheets)
+        .map((sheet) => {
+          try {
+            return Array.from(sheet.cssRules)
+              .map((rule) => rule.cssText)
+              .join("\n");
+          } catch (e) {
+            return "";
+          }
+        })
+        .join("\n");
+
+      // Create HTML for print view modal
+      const printHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Table Export - ${new Date().toLocaleDateString()}</title>
+            <meta charset="utf-8">
+            <style>
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+              body {
+                font-family: Arial, sans-serif;
+                padding: 20px;
+                background: white;
+                color: #000;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 12px;
+                page-break-inside: auto;
+              }
+              tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+              }
+              th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+                word-wrap: break-word;
+              }
+              th {
+                background-color: #f2f2f2;
+                font-weight: bold;
+              }
+              tr:nth-child(even) {
+                background-color: #f9f9f9;
+              }
+              @media print {
+                body {
+                  padding: 0;
+                  margin: 0;
+                }
+                @page {
+                  size: A4 landscape;
+                  margin: 1cm;
+                }
+                table {
+                  font-size: 10px;
+                }
+                th, td {
+                  padding: 4px;
+                }
+                .no-print {
+                  display: none !important;
+                }
+              }
+              ${tableStyles}
+            </style>
+          </head>
+          <body>
+            ${clonedTable.outerHTML}
+          </body>
+        </html>
+      `;
+
+      // Set the print view HTML and show the modal
+      setPrintViewHtml(printHtml);
+      setShowPrintView(true);
+
+      console.log("Print view modal opened. Use Ctrl+P to print/save as PDF.");
+
+      // Restore original state after a delay
+      setTimeout(() => {
+        setExpanded(originalExpanded);
+        setVisibleRows(originalVisibleRows);
+      }, 500);
+    } catch (error) {
+      console.error("Error exporting table:", error);
+      // Restore state on error
+      setExpanded(originalExpanded);
+      setVisibleRows(originalVisibleRows);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
@@ -904,669 +1128,937 @@ export const Table: React.FC<TableProps> = ({
   }
 
   return (
-    <div style={containerStyle}>
-      <div
-        ref={tableRef}
-        style={{ flex: 1, overflow: "auto" }}
-        onScroll={handleScroll}
-      >
-        <table
+    <>
+      {/* Print View Modal */}
+      {showPrintView && (
+        <div
           style={{
-            width: "100%",
-            maxWidth: "100%",
-            borderCollapse: "collapse",
-            fontFamily: "Arial, sans-serif",
-            position: "relative",
-            ...(isNestedTable ? {} : { tableLayout: "fixed" }),
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.9)",
+            zIndex: 10001,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+          onClick={() => {
+            setShowPrintView(false);
           }}
         >
-          <thead
+          <div
             style={{
-              position: "sticky",
-              top: 0,
-              zIndex: 10,
-              backgroundColor: "#F6F6F6",
+              background: "white",
+              borderRadius: "8px",
+              padding: "20px",
+              maxWidth: "95%",
+              maxHeight: "95%",
+              overflow: "auto",
+              position: "relative",
+              width: "100%",
+              height: "100%",
             }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <tr>
-              {columns.map((column, index) => (
-                <th
-                  key={column.accessorKey}
+            {/* Instructions Header */}
+            <div
+              className="no-print"
+              style={{
+                background: "#0078d4",
+                color: "white",
+                padding: "15px 25px",
+                borderRadius: "4px",
+                marginBottom: "20px",
+                textAlign: "center",
+                fontFamily: "Arial, sans-serif",
+                fontSize: "16px",
+                position: "sticky",
+                top: 0,
+                zIndex: 10,
+              }}
+            >
+              <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
+                Table Export Preview
+              </div>
+              <div style={{ fontSize: "14px", opacity: 0.95 }}>
+                Preview of your table export. Use the buttons below to copy the
+                HTML content.
+                <br />
+                <span style={{ fontSize: "12px", opacity: 0.9 }}>
+                  After copying, paste into a text editor, save as .html file,
+                  then open in your browser and use Ctrl+P (or Cmd+P on Mac) to
+                  print or save as PDF
+                </span>
+              </div>
+              <div
+                style={{
+                  marginTop: "10px",
+                  display: "flex",
+                  gap: "10px",
+                  justifyContent: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  onClick={copyHTMLToClipboard}
                   style={{
-                    padding: "12px 8px",
-                    borderBottom: "1px solid #ddd",
-                    backgroundColor: "#F6F6F6",
-                    textAlign: index === 0 ? "left" : "center",
-                    fontSize: "14px",
+                    padding: "8px 16px",
+                    background: "#28a745",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
                     fontWeight: "bold",
-                    fontFamily: "Arial, sans-serif",
-                    cursor: index === 0 ? "pointer" : "default",
-                    userSelect: "none",
-                    maxWidth: index === 0 ? "400px" : "auto",
-                    width: index === 0 ? "400px" : "auto",
+                    fontSize: "14px",
                   }}
-                  onClick={
-                    index === 0
-                      ? () => handleSort(column.accessorKey)
-                      : undefined
-                  }
+                >
+                  Copy HTML to Clipboard
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDownloadOptions(!showDownloadOptions);
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    background: "#17a2b8",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                    fontSize: "14px",
+                  }}
+                >
+                  {showDownloadOptions ? "Hide" : "Show"} Manual Copy
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPrintView(false);
+                    setShowDownloadOptions(false);
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    background: "white",
+                    color: "#0078d4",
+                    border: "1px solid #0078d4",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                    fontSize: "14px",
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+              {showDownloadOptions && (
+                <div
+                  style={{
+                    marginTop: "15px",
+                    padding: "15px",
+                    background: "#f8f9fa",
+                    borderRadius: "4px",
+                    border: "1px solid #dee2e6",
+                  }}
                 >
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: index === 0 ? "space-between" : "center",
-                      width: "100%",
-                      flexDirection: "row",
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      marginBottom: "10px",
+                      color: "#495057",
                     }}
+                  >
+                    Manual Copy Instructions:
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "#6c757d",
+                      marginBottom: "10px",
+                    }}
+                  >
+                    1. Click inside the text area below to select all text
+                    <br />
+                    2. Press <strong>Ctrl+C</strong> (or <strong>Cmd+C</strong>{" "}
+                    on Mac) to copy
+                    <br />
+                    3. Open a text editor (Notepad, TextEdit, etc.)
+                    <br />
+                    4. Paste the content and save as <strong>.html</strong> file
+                    <br />
+                    5. Open the HTML file in your browser and press{" "}
+                    <strong>Ctrl+P</strong> to print/save as PDF
+                  </div>
+                  <textarea
+                    id="html-content-textarea"
+                    readOnly
+                    value={printViewHtml}
+                    style={{
+                      width: "100%",
+                      height: "300px",
+                      fontFamily: "monospace",
+                      fontSize: "11px",
+                      padding: "10px",
+                      border: "1px solid #ced4da",
+                      borderRadius: "4px",
+                      backgroundColor: "white",
+                      resize: "vertical",
+                      cursor: "text",
+                    }}
+                    onClick={(e) => {
+                      const textarea = e.target as HTMLTextAreaElement;
+                      textarea.focus();
+                      textarea.select();
+                    }}
+                    onFocus={(e) => {
+                      e.target.select();
+                    }}
+                  />
+                  <div
+                    style={{
+                      marginTop: "10px",
+                      fontSize: "12px",
+                      color: "#6c757d",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    Tip: The text area is automatically selected when you click
+                    on it. Just press Ctrl+C to copy!
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Table Content in Print-Friendly Format - Render directly in div */}
+            <div
+              className="print-view-content"
+              style={{
+                width: "100%",
+                height: "calc(100% - 150px)",
+                overflow: "auto",
+                border: "1px solid #ddd",
+                background: "white",
+                padding: "20px",
+              }}
+              dangerouslySetInnerHTML={{
+                __html: printViewHtml
+                  .replace(/<!DOCTYPE html>/i, "")
+                  .replace(/<html[^>]*>/i, "")
+                  .replace(/<\/html>/i, "")
+                  .replace(/<head[^>]*>[\s\S]*?<\/head>/i, "")
+                  .replace(/<body[^>]*>/i, "")
+                  .replace(/<\/body>/i, ""),
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      <div style={containerStyle}>
+        <div
+          ref={tableRef}
+          style={{ flex: 1, overflow: "auto" }}
+          onScroll={handleScroll}
+        >
+          <table
+            style={{
+              width: "100%",
+              maxWidth: "100%",
+              borderCollapse: "collapse",
+              fontFamily: "Arial, sans-serif",
+              position: "relative",
+              ...(isNestedTable ? {} : { tableLayout: "fixed" }),
+            }}
+          >
+            <thead
+              style={{
+                position: "sticky",
+                top: 0,
+                zIndex: 10,
+                backgroundColor: "#F6F6F6",
+              }}
+            >
+              <tr>
+                {columns.map((column, index) => (
+                  <th
+                    key={column.accessorKey}
+                    style={{
+                      padding: "12px 8px",
+                      borderBottom: "1px solid #ddd",
+                      backgroundColor: "#F6F6F6",
+                      textAlign: index === 0 ? "left" : "center",
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      fontFamily: "Arial, sans-serif",
+                      cursor: index === 0 ? "pointer" : "default",
+                      userSelect: "none",
+                      maxWidth: index === 0 ? "400px" : "auto",
+                      width: index === 0 ? "400px" : "auto",
+                    }}
+                    onClick={
+                      index === 0
+                        ? () => handleSort(column.accessorKey)
+                        : undefined
+                    }
                   >
                     <div
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: "4px",
+                        justifyContent:
+                          index === 0 ? "space-between" : "center",
+                        width: "100%",
+                        flexDirection: "row",
                       }}
                     >
-                      {column.header}
-                      {index === 0 && (
-                        <span style={{ fontSize: "12px", color: "#666" }}>
-                          {sortColumn === column.accessorKey
-                            ? sortDirection === "asc"
-                              ? "↑"
-                              : "↓"
-                            : "↕"}
-                        </span>
-                      )}
-                    </div>
-                    {index === 0 && (
                       <div
                         style={{
                           display: "flex",
                           alignItems: "center",
                           gap: "4px",
-                          position: "relative",
                         }}
                       >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowSearchMenu(!showSearchMenu);
-                          }}
+                        {column.header}
+                        {index === 0 && (
+                          <span style={{ fontSize: "12px", color: "#666" }}>
+                            {sortColumn === column.accessorKey
+                              ? sortDirection === "asc"
+                                ? "↑"
+                                : "↓"
+                              : "↕"}
+                          </span>
+                        )}
+                      </div>
+                      {index === 0 && !isNestedTable && (
+                        <div
                           style={{
-                            paddingTop: "4px",
-                            fontSize: "18px",
-                            border: "none",
-                            backgroundColor: "transparent",
-                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            position: "relative",
                           }}
                         >
-                          {searchTerm ? <FaFilterCircleXmark /> : <IoFilter />}
-                        </button>
-                        {showSearchMenu && (
-                          <div
-                            ref={searchMenuRef}
-                            onClick={(e) => e.stopPropagation()}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExportToPDF();
+                            }}
+                            disabled={isExporting}
+                            title="Export to PDF"
                             style={{
-                              position: "absolute",
-                              top: "100%",
-                              right: "-60px",
-                              backgroundColor: "white",
-                              border: "1px solid #e0e0e0",
-                              borderRadius: "8px",
-                              padding: "20px",
-                              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-                              zIndex: 10000,
-                              minWidth: "320px",
-                              fontFamily: "Roboto, Arial, sans-serif",
+                              paddingTop: "4px",
+                              fontSize: "18px",
+                              border: "none",
+                              backgroundColor: "transparent",
+                              cursor: isExporting ? "wait" : "pointer",
+                              opacity: isExporting ? 0.5 : 1,
                               display: "flex",
-                              flexDirection: "column",
-                              gap: "20px",
+                              alignItems: "center",
                             }}
                           >
-                            {/* Filter Controls - Operator and Value side by side */}
+                            <MdPictureAsPdf
+                              style={{ fontSize: "20px", color: "#d32f2f" }}
+                            />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowSearchMenu(!showSearchMenu);
+                            }}
+                            style={{
+                              paddingTop: "4px",
+                              fontSize: "18px",
+                              border: "none",
+                              backgroundColor: "transparent",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {searchTerm ? (
+                              <FaFilterCircleXmark />
+                            ) : (
+                              <IoFilter />
+                            )}
+                          </button>
+                          {showSearchMenu && (
                             <div
+                              ref={searchMenuRef}
+                              onClick={(e) => e.stopPropagation()}
                               style={{
+                                position: "absolute",
+                                top: "100%",
+                                right: "-60px",
+                                backgroundColor: "white",
+                                border: "1px solid #e0e0e0",
+                                borderRadius: "8px",
+                                padding: "20px",
+                                boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                                zIndex: 10000,
+                                minWidth: "320px",
+                                fontFamily: "Roboto, Arial, sans-serif",
                                 display: "flex",
-                                gap: "16px",
-                                flexShrink: 0,
+                                flexDirection: "column",
+                                gap: "20px",
                               }}
                             >
-                              {/* Operator Selection */}
+                              {/* Filter Controls - Operator and Value side by side */}
                               <div
                                 style={{
                                   display: "flex",
-                                  flexDirection: "column",
-                                  gap: "4px",
-                                  flex: 1,
-                                  position: "relative",
+                                  gap: "16px",
+                                  flexShrink: 0,
                                 }}
                               >
-                                <label
-                                  style={{
-                                    fontSize: "14px",
-                                    fontWeight: "500",
-                                    color: "#666",
-                                    display: "block",
-                                    marginBottom: "6px",
-                                  }}
-                                >
-                                  Operator
-                                </label>
+                                {/* Operator Selection */}
                                 <div
                                   style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "4px",
+                                    flex: 1,
                                     position: "relative",
-                                    borderBottom: "1px solid #e0e0e0",
-                                    paddingBottom: "4px",
                                   }}
                                 >
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowOperatorDropdown(
-                                        !showOperatorDropdown
-                                      );
-                                    }}
+                                  <label
                                     style={{
-                                      width: "100%",
-                                      padding: "10px 0",
-                                      border: "none",
-                                      fontSize: "16px",
-                                      backgroundColor: "transparent",
-                                      outline: "none",
-                                      cursor: "pointer",
-                                      textAlign: "left",
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      alignItems: "center",
+                                      fontSize: "14px",
+                                      fontWeight: "500",
+                                      color: "#666",
+                                      display: "block",
+                                      marginBottom: "6px",
                                     }}
                                   >
-                                    <span>{searchType}</span>
-                                    <svg
-                                      style={{
-                                        width: "16",
-                                        height: "16",
-                                        transform: showOperatorDropdown
-                                          ? "rotate(180deg)"
-                                          : "rotate(0deg)",
-                                        transition: "transform 0.2s",
+                                    Operator
+                                  </label>
+                                  <div
+                                    style={{
+                                      position: "relative",
+                                      borderBottom: "1px solid #e0e0e0",
+                                      paddingBottom: "4px",
+                                    }}
+                                  >
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowOperatorDropdown(
+                                          !showOperatorDropdown
+                                        );
                                       }}
-                                      viewBox="0 0 24 24"
-                                      fill="currentColor"
-                                    >
-                                      <path d="M7 10l5 5 5-5z" />
-                                    </svg>
-                                  </button>
-                                  {showOperatorDropdown && (
-                                    <div
-                                      ref={operatorDropdownRef}
                                       style={{
-                                        position: "absolute",
-                                        top: "100%",
-                                        left: 0,
-                                        right: 0,
-                                        backgroundColor: "white",
-                                        border: "1px solid #e0e0e0",
-                                        borderRadius: "4px",
-                                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                                        zIndex: 10001,
-                                        marginTop: "4px",
+                                        width: "100%",
+                                        padding: "10px 0",
+                                        border: "none",
+                                        fontSize: "16px",
+                                        backgroundColor: "transparent",
+                                        outline: "none",
+                                        cursor: "pointer",
+                                        textAlign: "left",
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
                                       }}
                                     >
-                                      <div
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSearchType("contains");
-                                          setShowOperatorDropdown(false);
-                                        }}
+                                      <span>{searchType}</span>
+                                      <svg
                                         style={{
-                                          padding: "10px 14px",
-                                          cursor: "pointer",
-                                          textAlign: "left",
-                                          backgroundColor:
-                                            searchType === "contains"
-                                              ? "#f5f5f5"
-                                              : "white",
-                                          fontSize: "16px",
+                                          width: "16",
+                                          height: "16",
+                                          transform: showOperatorDropdown
+                                            ? "rotate(180deg)"
+                                            : "rotate(0deg)",
+                                          transition: "transform 0.2s",
                                         }}
-                                        onMouseOver={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            "#f5f5f5";
-                                        }}
-                                        onMouseOut={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            searchType === "contains"
-                                              ? "#f5f5f5"
-                                              : "white";
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                      >
+                                        <path d="M7 10l5 5 5-5z" />
+                                      </svg>
+                                    </button>
+                                    {showOperatorDropdown && (
+                                      <div
+                                        ref={operatorDropdownRef}
+                                        style={{
+                                          position: "absolute",
+                                          top: "100%",
+                                          left: 0,
+                                          right: 0,
+                                          backgroundColor: "white",
+                                          border: "1px solid #e0e0e0",
+                                          borderRadius: "4px",
+                                          boxShadow:
+                                            "0 2px 8px rgba(0,0,0,0.1)",
+                                          zIndex: 10001,
+                                          marginTop: "4px",
                                         }}
                                       >
-                                        contains
+                                        <div
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSearchType("contains");
+                                            setShowOperatorDropdown(false);
+                                          }}
+                                          style={{
+                                            padding: "10px 14px",
+                                            cursor: "pointer",
+                                            textAlign: "left",
+                                            backgroundColor:
+                                              searchType === "contains"
+                                                ? "#f5f5f5"
+                                                : "white",
+                                            fontSize: "16px",
+                                          }}
+                                          onMouseOver={(e) => {
+                                            e.currentTarget.style.backgroundColor =
+                                              "#f5f5f5";
+                                          }}
+                                          onMouseOut={(e) => {
+                                            e.currentTarget.style.backgroundColor =
+                                              searchType === "contains"
+                                                ? "#f5f5f5"
+                                                : "white";
+                                          }}
+                                        >
+                                          contains
+                                        </div>
+                                        <div
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSearchType("equal");
+                                            setShowOperatorDropdown(false);
+                                          }}
+                                          style={{
+                                            padding: "10px 14px",
+                                            cursor: "pointer",
+                                            backgroundColor:
+                                              searchType === "equal"
+                                                ? "#f5f5f5"
+                                                : "white",
+                                            fontSize: "16px",
+                                          }}
+                                          onMouseOver={(e) => {
+                                            e.currentTarget.style.backgroundColor =
+                                              "#f5f5f5";
+                                          }}
+                                          onMouseOut={(e) => {
+                                            e.currentTarget.style.backgroundColor =
+                                              searchType === "equal"
+                                                ? "#f5f5f5"
+                                                : "white";
+                                          }}
+                                        >
+                                          equals
+                                        </div>
                                       </div>
-                                      <div
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSearchType("equal");
-                                          setShowOperatorDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: "10px 14px",
-                                          cursor: "pointer",
-                                          backgroundColor:
-                                            searchType === "equal"
-                                              ? "#f5f5f5"
-                                              : "white",
-                                          fontSize: "16px",
-                                        }}
-                                        onMouseOver={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            "#f5f5f5";
-                                        }}
-                                        onMouseOut={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            searchType === "equal"
-                                              ? "#f5f5f5"
-                                              : "white";
-                                        }}
-                                      >
-                                        equals
-                                      </div>
-                                    </div>
-                                  )}
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
 
-                              {/* Value Input */}
-                              <div
-                                style={{
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: "4px",
-                                  flex: 2,
-                                }}
-                              >
-                                <label
-                                  style={{
-                                    fontSize: "14px",
-                                    fontWeight: "500",
-                                    color: "#666",
-                                    display: "block",
-                                    marginBottom: "6px",
-                                  }}
-                                >
-                                  Value
-                                </label>
+                                {/* Value Input */}
                                 <div
                                   style={{
-                                    position: "relative",
-                                    borderBottom: "1px solid #e0e0e0",
-                                    paddingBottom: "4px",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "4px",
+                                    flex: 2,
                                   }}
                                 >
-                                  <input
-                                    type="text"
-                                    value={searchTerm}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) => {
-                                      setSearchTerm(e.target.value);
-                                      setVisibleRows(20);
-                                    }}
-                                    placeholder="Filter value"
+                                  <label
                                     style={{
-                                      width: "100%",
-                                      padding: "10px 0",
-                                      border: "none",
-                                      fontSize: "16px",
-                                      backgroundColor: "transparent",
-                                      outline: "none",
+                                      fontSize: "14px",
+                                      fontWeight: "500",
+                                      color: "#666",
+                                      display: "block",
+                                      marginBottom: "6px",
                                     }}
-                                    onFocus={(e) => {
-                                      e.target.parentElement!.style.borderBottomColor =
-                                        "#1976d2";
+                                  >
+                                    Value
+                                  </label>
+                                  <div
+                                    style={{
+                                      position: "relative",
+                                      borderBottom: "1px solid #e0e0e0",
+                                      paddingBottom: "4px",
                                     }}
-                                    onBlur={(e) => {
-                                      e.target.parentElement!.style.borderBottomColor =
-                                        "#e0e0e0";
-                                    }}
-                                  />
+                                  >
+                                    <input
+                                      type="text"
+                                      value={searchTerm}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => {
+                                        setSearchTerm(e.target.value);
+                                        setVisibleRows(20);
+                                      }}
+                                      placeholder="Filter value"
+                                      style={{
+                                        width: "100%",
+                                        padding: "10px 0",
+                                        border: "none",
+                                        fontSize: "16px",
+                                        backgroundColor: "transparent",
+                                        outline: "none",
+                                      }}
+                                      onFocus={(e) => {
+                                        e.target.parentElement!.style.borderBottomColor =
+                                          "#1976d2";
+                                      }}
+                                      onBlur={(e) => {
+                                        e.target.parentElement!.style.borderBottomColor =
+                                          "#e0e0e0";
+                                      }}
+                                    />
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </th>
-              ))}
-              {/* Show expand column if has nested data/columns (root table) or nested columns (nested table) */}
-              {((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
-                (isNestedTable && nestedColumns)) && (
-                <th
-                  style={{
-                    width: "40px",
-                    padding: "12px 8px",
-                    borderBottom: "1px solid #ddd",
-                    backgroundColor: "#F6F6F6",
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    fontFamily: "Arial, sans-serif",
-                    textAlign: "center",
-                  }}
-                />
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {currentData.map((row, index) => (
-              <React.Fragment key={index}>
-                <tr>
-                  {columns.map((column, columnIndex) => {
-                    const cellValue = row[column.accessorKey];
-                    const cellValueStr = String(cellValue || "");
-                    const isYes = cellValueStr.toLowerCase() === "yes";
-                    const isNo = cellValueStr.toLowerCase() === "no";
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </th>
+                ))}
+                {/* Show expand column if has nested data/columns (root table) or nested columns (nested table) */}
+                {((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
+                  (isNestedTable && nestedColumns)) && (
+                  <th
+                    style={{
+                      width: "40px",
+                      padding: "12px 8px",
+                      borderBottom: "1px solid #ddd",
+                      backgroundColor: "#F6F6F6",
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      fontFamily: "Arial, sans-serif",
+                      textAlign: "center",
+                    }}
+                  />
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {currentData.map((row, index) => (
+                <React.Fragment key={index}>
+                  <tr>
+                    {columns.map((column, columnIndex) => {
+                      const cellValue = row[column.accessorKey];
+                      const cellValueStr = String(cellValue || "");
+                      const isYes = cellValueStr.toLowerCase() === "yes";
+                      const isNo = cellValueStr.toLowerCase() === "no";
 
-                    // Check if the value is a URL from the specified domain
-                    const isSvgUrl =
-                      columnIndex > 0 &&
-                      cellValueStr.startsWith(
-                        "https://raw.githubusercontent.com/hypertechsa"
+                      // Check if the value is a URL from the specified domain
+                      const isSvgUrl =
+                        columnIndex > 0 &&
+                        cellValueStr.startsWith(
+                          "https://raw.githubusercontent.com/hypertechsa"
+                        );
+
+                      // Check if the value is a URL (for nested tables)
+                      const cellIsUrl = isNestedTable && isUrl(cellValueStr);
+
+                      return (
+                        <td
+                          key={column.accessorKey}
+                          style={{
+                            padding: "12px 8px",
+                            borderBottom: "1px solid #ddd",
+                            textAlign: columnIndex === 0 ? "left" : "center",
+                            fontSize: "14px",
+                            fontFamily: "Arial, sans-serif",
+                            maxWidth: columnIndex === 0 ? "400px" : "auto",
+                            width: columnIndex === 0 ? "400px" : "auto",
+                            wordWrap:
+                              columnIndex === 0 ? "break-word" : "normal",
+                            whiteSpace: columnIndex === 0 ? "normal" : "nowrap",
+                            overflow: columnIndex === 0 ? "hidden" : "visible",
+                          }}
+                        >
+                          {columnIndex === 0 ? (
+                            // First column: show text as is
+                            cellValue
+                          ) : cellIsUrl ? (
+                            // For nested tables: if it's a URL, show clickable link icon
+                            <a
+                              href={cellValueStr}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                textDecoration: "none",
+                                color: "#0078d4",
+                              }}
+                              title={cellValueStr}
+                            >
+                              <LinkIcon size={16} />
+                            </a>
+                          ) : isSvgUrl ? (
+                            // For columns after the first: if it's an SVG URL, show the image
+                            <SvgImageCell url={cellValueStr} />
+                          ) : isYes ? (
+                            // If text is "Yes", apply Yes styling
+                            <span
+                              style={{
+                                backgroundColor: "#EAEAEA",
+                                color: "#222222",
+                                width: "44px",
+                                height: "22px",
+                                padding: "4px 12px",
+                                borderRadius: "6px",
+                                fontWeight: "500",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontFamily: "Arial, sans-serif",
+                                boxSizing: "border-box",
+                              }}
+                            >
+                              {cellValue}
+                            </span>
+                          ) : isNo ? (
+                            // If text is "No", apply No styling
+                            <span
+                              style={{
+                                backgroundColor: "#22294B",
+                                color: "#FFFFFF",
+                                width: "40px",
+                                height: "22px",
+                                padding: "4px 12px",
+                                borderRadius: "6px",
+                                fontWeight: "500",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontFamily: "Arial, sans-serif",
+                                boxSizing: "border-box",
+                              }}
+                            >
+                              {cellValue}
+                            </span>
+                          ) : (
+                            // Otherwise, show text as is
+                            cellValue
+                          )}
+                        </td>
                       );
-
-                    // Check if the value is a URL (for nested tables)
-                    const cellIsUrl = isNestedTable && isUrl(cellValueStr);
-
-                    return (
+                    })}
+                    {/* Show expand column if has nested data/columns (root table) or nested columns (nested table) */}
+                    {((!isNestedTable &&
+                      (nestedColumns || nestedTableColumns)) ||
+                      (isNestedTable && nestedColumns)) && (
                       <td
-                        key={column.accessorKey}
                         style={{
                           padding: "12px 8px",
                           borderBottom: "1px solid #ddd",
-                          textAlign: columnIndex === 0 ? "left" : "center",
-                          fontSize: "14px",
+                          textAlign: "center",
+                          cursor: "pointer",
+                          fontSize: "16px",
                           fontFamily: "Arial, sans-serif",
-                          maxWidth: columnIndex === 0 ? "400px" : "auto",
-                          width: columnIndex === 0 ? "400px" : "auto",
-                          wordWrap: columnIndex === 0 ? "break-word" : "normal",
-                          whiteSpace: columnIndex === 0 ? "normal" : "nowrap",
-                          overflow: columnIndex === 0 ? "hidden" : "visible",
                         }}
+                        onClick={() =>
+                          toggleRow(getOriginalDataIndex(row).toString())
+                        }
                       >
-                        {columnIndex === 0 ? (
-                          // First column: show text as is
-                          cellValue
-                        ) : cellIsUrl ? (
-                          // For nested tables: if it's a URL, show clickable link icon
-                          <a
-                            href={cellValueStr}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              textDecoration: "none",
-                              color: "#0078d4",
-                            }}
-                            title={cellValueStr}
-                          >
-                            <LinkIcon size={16} />
-                          </a>
-                        ) : isSvgUrl ? (
-                          // For columns after the first: if it's an SVG URL, show the image
-                          <SvgImageCell url={cellValueStr} />
-                        ) : isYes ? (
-                          // If text is "Yes", apply Yes styling
-                          <span
-                            style={{
-                              backgroundColor: "#EAEAEA",
-                              color: "#222222",
-                              width: "44px",
-                              height: "22px",
-                              padding: "4px 12px",
-                              borderRadius: "6px",
-                              fontWeight: "500",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontFamily: "Arial, sans-serif",
-                              boxSizing: "border-box",
-                            }}
-                          >
-                            {cellValue}
-                          </span>
-                        ) : isNo ? (
-                          // If text is "No", apply No styling
-                          <span
-                            style={{
-                              backgroundColor: "#22294B",
-                              color: "#FFFFFF",
-                              width: "40px",
-                              height: "22px",
-                              padding: "4px 12px",
-                              borderRadius: "6px",
-                              fontWeight: "500",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontFamily: "Arial, sans-serif",
-                              boxSizing: "border-box",
-                            }}
-                          >
-                            {cellValue}
-                          </span>
+                        {expanded[getOriginalDataIndex(row).toString()] ? (
+                          <IoIosArrowUp />
                         ) : (
-                          // Otherwise, show text as is
-                          cellValue
+                          <IoIosArrowDown />
                         )}
                       </td>
-                    );
-                  })}
-                  {/* Show expand column if has nested data/columns (root table) or nested columns (nested table) */}
-                  {((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
-                    (isNestedTable && nestedColumns)) && (
-                    <td
-                      style={{
-                        padding: "12px 8px",
-                        borderBottom: "1px solid #ddd",
-                        textAlign: "center",
-                        cursor: "pointer",
-                        fontSize: "16px",
-                        fontFamily: "Arial, sans-serif",
-                      }}
-                      onClick={() =>
-                        toggleRow(getOriginalDataIndex(row).toString())
-                      }
-                    >
-                      {expanded[getOriginalDataIndex(row).toString()] ? (
-                        <IoIosArrowUp />
-                      ) : (
-                        <IoIosArrowDown />
-                      )}
-                    </td>
-                  )}
-                </tr>
-                {/* Root table: show nested columns and nested table */}
-                {!isNestedTable &&
-                  expanded[getOriginalDataIndex(row).toString()] && (
-                    <tr>
-                      <td
-                        colSpan={
-                          columns.length +
-                          (nestedColumns || nestedTableColumns ? 1 : 0)
-                        }
-                        style={{
-                          padding: 0,
-                          width: "100%",
-                          maxWidth: "100%",
-                          overflow: "hidden",
-                          boxSizing: "border-box",
-                        }}
-                      >
-                        <div
+                    )}
+                  </tr>
+                  {/* Root table: show nested columns and nested table */}
+                  {!isNestedTable &&
+                    expanded[getOriginalDataIndex(row).toString()] && (
+                      <tr>
+                        <td
+                          colSpan={
+                            columns.length +
+                            (nestedColumns || nestedTableColumns ? 1 : 0)
+                          }
                           style={{
+                            padding: 0,
                             width: "100%",
                             maxWidth: "100%",
                             overflow: "hidden",
                             boxSizing: "border-box",
                           }}
                         >
-                          <NestedTable
-                            rowData={row}
-                            nestedData={nestedData}
-                            nestedColumns={nestedColumns}
-                            nestedTableData={nestedTableData}
-                            nestedTableColumns={nestedTableColumns}
-                            nestedTableNestedData={nestedTableNestedData}
-                            nestedTableNestedColumns={nestedTableNestedColumns}
-                            selectionManager={selectionManager}
-                            dataView={dataView}
-                            host={host}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                {/* Nested table: show nested columns only (no nested tables) */}
-                {isNestedTable &&
-                  nestedColumns &&
-                  expanded[getOriginalDataIndex(row).toString()] && (
-                    <tr>
-                      <td
-                        colSpan={columns.length + 1}
-                        style={{
-                          padding: "24px",
-                          backgroundColor: "#fafafa",
-                          borderTop: "1px solid #e0e0e0",
-                          width: "100%",
-                        }}
-                      >
-                        <div
+                          <div
+                            style={{
+                              width: "100%",
+                              maxWidth: "100%",
+                              overflow: "hidden",
+                              boxSizing: "border-box",
+                            }}
+                          >
+                            <NestedTable
+                              rowData={row}
+                              nestedData={nestedData}
+                              nestedColumns={nestedColumns}
+                              nestedTableData={nestedTableData}
+                              nestedTableColumns={nestedTableColumns}
+                              nestedTableNestedData={nestedTableNestedData}
+                              nestedTableNestedColumns={
+                                nestedTableNestedColumns
+                              }
+                              selectionManager={selectionManager}
+                              dataView={dataView}
+                              host={host}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  {/* Nested table: show nested columns only (no nested tables) */}
+                  {isNestedTable &&
+                    nestedColumns &&
+                    expanded[getOriginalDataIndex(row).toString()] && (
+                      <tr>
+                        <td
+                          colSpan={columns.length + 1}
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr",
-                            gap: "16px",
+                            padding: "24px",
+                            backgroundColor: "#fafafa",
+                            borderTop: "1px solid #e0e0e0",
                             width: "100%",
                           }}
                         >
-                          {(() => {
-                            const rowNestedData =
-                              typeof nestedData === "function"
-                                ? nestedData(row)
-                                : nestedData || [];
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr",
+                              gap: "16px",
+                              width: "100%",
+                            }}
+                          >
+                            {(() => {
+                              const rowNestedData =
+                                typeof nestedData === "function"
+                                  ? nestedData(row)
+                                  : nestedData || [];
 
-                            // If no nested data for this row, return empty
-                            if (!rowNestedData || rowNestedData.length === 0) {
-                              return null;
-                            }
+                              // If no nested data for this row, return empty
+                              if (
+                                !rowNestedData ||
+                                rowNestedData.length === 0
+                              ) {
+                                return null;
+                              }
 
-                            return rowNestedData.map(
-                              (item: any, itemIndex: number) =>
-                                nestedColumns.map((column, colIndex) => {
-                                  const cellValue = item[column.accessorKey];
-                                  const cellValueStr = String(cellValue || "");
-                                  const isYes =
-                                    cellValueStr.toLowerCase() === "yes";
-                                  const isNo =
-                                    cellValueStr.toLowerCase() === "no";
-                                  const isSvgUrl =
-                                    colIndex > 0 &&
-                                    cellValueStr.startsWith(
-                                      "https://raw.githubusercontent.com/hypertechsa"
+                              return rowNestedData.map(
+                                (item: any, itemIndex: number) =>
+                                  nestedColumns.map((column, colIndex) => {
+                                    const cellValue = item[column.accessorKey];
+                                    const cellValueStr = String(
+                                      cellValue || ""
                                     );
+                                    const isYes =
+                                      cellValueStr.toLowerCase() === "yes";
+                                    const isNo =
+                                      cellValueStr.toLowerCase() === "no";
+                                    const isSvgUrl =
+                                      colIndex > 0 &&
+                                      cellValueStr.startsWith(
+                                        "https://raw.githubusercontent.com/hypertechsa"
+                                      );
 
-                                  return (
-                                    <div
-                                      key={`${itemIndex}-${column.accessorKey}`}
-                                      style={{
-                                        marginBottom: "16px",
-                                        width: "100%",
-                                      }}
-                                    >
+                                    return (
                                       <div
+                                        key={`${itemIndex}-${column.accessorKey}`}
                                         style={{
-                                          fontSize: "14px",
-                                          fontWeight: "bold",
-                                          color: "#495057",
-                                          marginBottom: "4px",
-                                          fontFamily: "Arial, sans-serif",
+                                          marginBottom: "16px",
                                           width: "100%",
                                         }}
                                       >
-                                        {column.header}:
+                                        <div
+                                          style={{
+                                            fontSize: "14px",
+                                            fontWeight: "bold",
+                                            color: "#495057",
+                                            marginBottom: "4px",
+                                            fontFamily: "Arial, sans-serif",
+                                            width: "100%",
+                                          }}
+                                        >
+                                          {column.header}:
+                                        </div>
+                                        <div
+                                          style={{
+                                            fontSize: "14px",
+                                            color: "#6c757d",
+                                            paddingLeft: "12px",
+                                            fontFamily: "Arial, sans-serif",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            width: "100%",
+                                          }}
+                                        >
+                                          {colIndex === 0 ? (
+                                            cellValue
+                                          ) : isSvgUrl ? (
+                                            <SvgImageCell url={cellValueStr} />
+                                          ) : isYes ? (
+                                            <span
+                                              style={{
+                                                backgroundColor: "#EAEAEA",
+                                                color: "#222222",
+                                                width: "44px",
+                                                height: "22px",
+                                                padding: "4px 12px",
+                                                borderRadius: "6px",
+                                                fontWeight: "500",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                fontFamily: "Arial, sans-serif",
+                                                boxSizing: "border-box",
+                                              }}
+                                            >
+                                              {cellValue}
+                                            </span>
+                                          ) : isNo ? (
+                                            <span
+                                              style={{
+                                                backgroundColor: "#22294B",
+                                                color: "#FFFFFF",
+                                                width: "40px",
+                                                height: "22px",
+                                                padding: "4px 12px",
+                                                borderRadius: "6px",
+                                                fontWeight: "500",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                fontFamily: "Arial, sans-serif",
+                                                boxSizing: "border-box",
+                                              }}
+                                            >
+                                              {cellValue}
+                                            </span>
+                                          ) : (
+                                            cellValue
+                                          )}
+                                        </div>
                                       </div>
-                                      <div
-                                        style={{
-                                          fontSize: "14px",
-                                          color: "#6c757d",
-                                          paddingLeft: "12px",
-                                          fontFamily: "Arial, sans-serif",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          width: "100%",
-                                        }}
-                                      >
-                                        {colIndex === 0 ? (
-                                          cellValue
-                                        ) : isSvgUrl ? (
-                                          <SvgImageCell url={cellValueStr} />
-                                        ) : isYes ? (
-                                          <span
-                                            style={{
-                                              backgroundColor: "#EAEAEA",
-                                              color: "#222222",
-                                              width: "44px",
-                                              height: "22px",
-                                              padding: "4px 12px",
-                                              borderRadius: "6px",
-                                              fontWeight: "500",
-                                              display: "inline-flex",
-                                              alignItems: "center",
-                                              justifyContent: "center",
-                                              fontFamily: "Arial, sans-serif",
-                                              boxSizing: "border-box",
-                                            }}
-                                          >
-                                            {cellValue}
-                                          </span>
-                                        ) : isNo ? (
-                                          <span
-                                            style={{
-                                              backgroundColor: "#22294B",
-                                              color: "#FFFFFF",
-                                              width: "40px",
-                                              height: "22px",
-                                              padding: "4px 12px",
-                                              borderRadius: "6px",
-                                              fontWeight: "500",
-                                              display: "inline-flex",
-                                              alignItems: "center",
-                                              justifyContent: "center",
-                                              fontFamily: "Arial, sans-serif",
-                                              boxSizing: "border-box",
-                                            }}
-                                          >
-                                            {cellValue}
-                                          </span>
-                                        ) : (
-                                          cellValue
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                            );
-                          })()}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
+                                    );
+                                  })
+                              );
+                            })()}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </>
   );
 };
