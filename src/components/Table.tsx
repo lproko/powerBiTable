@@ -14,6 +14,18 @@ const isUrl = (str: string): boolean => {
   }
 };
 
+// Helper function to format empty values as "—"
+const formatValue = (value: any): any => {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  const strValue = String(value);
+  if (strValue.trim() === "") {
+    return "—";
+  }
+  return value;
+};
+
 // Link icon SVG - inline SVG for reliability
 const LinkIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg
@@ -433,9 +445,9 @@ const NestedTable: React.FC<{
       {hasNestedColumns && (
         <div
           style={{
-            width: hasNestedTable ? "40%" : "100%",
+            width: hasNestedTable ? "35%" : "100%",
             flexShrink: 0,
-            maxWidth: hasNestedTable ? "40%" : "100%",
+            maxWidth: hasNestedTable ? "35%" : "100%",
             overflow: "hidden",
             boxSizing: "border-box",
           }}
@@ -488,7 +500,7 @@ const NestedTable: React.FC<{
                       >
                         {colIndex === 0 ? (
                           // First column: show text as is
-                          cellValue
+                          formatValue(cellValue)
                         ) : isSvgUrl ? (
                           // If it's an SVG URL, show the image
                           <SvgImageCell url={cellValueStr} />
@@ -534,7 +546,7 @@ const NestedTable: React.FC<{
                           </span>
                         ) : (
                           // Otherwise, show text as is
-                          cellValue
+                          formatValue(cellValue)
                         )}
                       </div>
                     </div>
@@ -570,9 +582,9 @@ const NestedTable: React.FC<{
           return (
             <div
               style={{
-                width: hasNestedColumns ? "50%" : "100%",
+                width: hasNestedColumns ? "60%" : "100%",
                 flexShrink: 0,
-                maxWidth: hasNestedColumns ? "50%" : "100%",
+                maxWidth: hasNestedColumns ? "60%" : "100%",
                 overflow: "hidden",
                 boxSizing: "border-box",
               }}
@@ -618,12 +630,21 @@ export const Table: React.FC<TableProps> = ({
   const [isUserSelecting, setIsUserSelecting] = useState(false);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  // First column filter (text-based with operator)
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [searchType, setSearchType] = useState<"contains" | "equal">(
     "contains"
   );
   const [showSearchMenu, setShowSearchMenu] = useState(false);
   const [showOperatorDropdown, setShowOperatorDropdown] = useState(false);
+  // Other columns filter (checkbox-based)
+  const [columnFilters, setColumnFilters] = useState<{
+    [columnId: string]: Set<string>;
+  }>({});
+  const [openFilterMenu, setOpenFilterMenu] = useState<string | null>(null);
+  const filterMenuRefs = useRef<{ [columnId: string]: HTMLDivElement | null }>(
+    {}
+  );
   const searchMenuRef = useRef<HTMLDivElement>(null);
   const operatorDropdownRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -649,7 +670,7 @@ export const Table: React.FC<TableProps> = ({
     );
   }
 
-  // Close search menu when clicking outside
+  // Close filter menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -664,16 +685,22 @@ export const Table: React.FC<TableProps> = ({
       ) {
         setShowOperatorDropdown(false);
       }
+      if (openFilterMenu) {
+        const menuRef = filterMenuRefs.current[openFilterMenu];
+        if (menuRef && !menuRef.contains(event.target as Node)) {
+          setOpenFilterMenu(null);
+        }
+      }
     };
 
-    if (showSearchMenu || showOperatorDropdown) {
+    if (showSearchMenu || showOperatorDropdown || openFilterMenu) {
       document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [showSearchMenu, showOperatorDropdown]);
+  }, [showSearchMenu, showOperatorDropdown, openFilterMenu]);
 
   // Sync with Power BI selections
   useEffect(() => {
@@ -814,12 +841,67 @@ export const Table: React.FC<TableProps> = ({
     setVisibleRows(20); // Reset visible rows when sorting
   };
 
+  // Handle filter toggle for a column
+  const toggleFilterValue = (columnKey: string, value: string) => {
+    setColumnFilters((prev) => {
+      const newFilters = { ...prev };
+      if (!newFilters[columnKey]) {
+        newFilters[columnKey] = new Set();
+      }
+      const filterSet = new Set(newFilters[columnKey]);
+      if (filterSet.has(value)) {
+        filterSet.delete(value);
+      } else {
+        filterSet.add(value);
+      }
+      newFilters[columnKey] = filterSet;
+      return newFilters;
+    });
+    setVisibleRows(20); // Reset visible rows when filtering
+  };
+
+  // Clear all filters for a column
+  const clearColumnFilter = (columnKey: string) => {
+    setColumnFilters((prev) => {
+      const newFilters = { ...prev };
+      newFilters[columnKey] = new Set();
+      return newFilters;
+    });
+    setVisibleRows(20);
+  };
+
+  // Check if a column has active filters
+  const hasActiveFilter = (columnKey: string, columnIndex: number) => {
+    // First column uses searchTerm
+    if (columnIndex === 0) {
+      return searchTerm && searchTerm.trim().length > 0;
+    }
+    // Other columns use columnFilters
+    const filterSet = columnFilters[columnKey];
+    return filterSet && filterSet.size > 0;
+  };
+
+  // Get unique values for a column
+  const getUniqueValuesForColumn = (columnKey: string, columnIndex: number) => {
+    const values = new Set<string>();
+    data.forEach((row) => {
+      const cellValue = row[columnKey];
+      const cellValueStr = String(cellValue || "");
+      values.add(cellValueStr);
+    });
+    return Array.from(values).sort();
+  };
+
   // Filter and sort data
-  const filteredData = searchTerm
-    ? data.filter((row) => {
-        const firstColumnKey = columns[0]?.accessorKey;
-        if (!firstColumnKey) return true;
-        const cellValue = String(row[firstColumnKey]).toLowerCase();
+  const filteredData = data.filter((row) => {
+    // Check if row passes all column filters
+    return columns.every((column, columnIndex) => {
+      const columnKey = column.accessorKey;
+
+      // First column uses text-based filter
+      if (columnIndex === 0) {
+        if (!searchTerm) return true;
+        const cellValue = String(row[columnKey] || "").toLowerCase();
         const searchValue = searchTerm.toLowerCase();
 
         if (searchType === "contains") {
@@ -827,8 +909,19 @@ export const Table: React.FC<TableProps> = ({
         } else {
           return cellValue === searchValue;
         }
-      })
-    : data;
+      }
+
+      // Other columns use checkbox-based filter
+      const filterSet = columnFilters[columnKey];
+      if (!filterSet || filterSet.size === 0) {
+        return true;
+      }
+
+      const cellValue = row[columnKey];
+      const cellValueStr = String(cellValue || "");
+      return filterSet.has(cellValueStr);
+    });
+  });
 
   const sortedData = [...filteredData].sort((a, b) => {
     if (!sortColumn) return 0;
@@ -893,6 +986,7 @@ export const Table: React.FC<TableProps> = ({
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
+    minHeight: isNestedTable ? "180px" : "auto",
     display: "flex",
     flexDirection: "column",
   };
@@ -929,56 +1023,69 @@ export const Table: React.FC<TableProps> = ({
             }}
           >
             <tr>
-              {columns.map((column, index) => (
-                <th
-                  key={column.accessorKey}
-                  style={{
-                    padding: "12px 8px",
-                    borderBottom: "1px solid #ddd",
-                    backgroundColor: "#F6F6F6",
-                    textAlign: index === 0 ? "left" : "center",
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    fontFamily: "Arial, sans-serif",
-                    cursor: index === 0 ? "pointer" : "default",
-                    userSelect: "none",
-                    maxWidth: index === 0 ? "400px" : "auto",
-                    width: index === 0 ? "400px" : "auto",
-                  }}
-                  onClick={
-                    index === 0
-                      ? () => handleSort(column.accessorKey)
-                      : undefined
-                  }
-                >
-                  <div
+              {columns.map((column, index) => {
+                const uniqueValues = getUniqueValuesForColumn(
+                  column.accessorKey,
+                  index
+                );
+                const isFilterOpen = openFilterMenu === column.accessorKey;
+                const hasFilter = hasActiveFilter(column.accessorKey, index);
+                const filterSet =
+                  columnFilters[column.accessorKey] || new Set();
+
+                return (
+                  <th
+                    key={column.accessorKey}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: index === 0 ? "space-between" : "center",
-                      width: "100%",
-                      flexDirection: "row",
+                      padding: "12px 8px",
+                      borderBottom: "1px solid #ddd",
+                      backgroundColor: "#F6F6F6",
+                      textAlign: index === 0 ? "left" : "center",
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      fontFamily: "Arial, sans-serif",
+                      cursor: index === 0 ? "pointer" : "default",
+                      userSelect: "none",
+                      maxWidth: index === 0 ? "400px" : "auto",
+                      width: index === 0 ? "400px" : "auto",
+                      position: "relative",
                     }}
+                    onClick={
+                      index === 0
+                        ? () => handleSort(column.accessorKey)
+                        : undefined
+                    }
                   >
                     <div
                       style={{
                         display: "flex",
                         alignItems: "center",
+                        justifyContent:
+                          index === 0 ? "space-between" : "center",
+                        width: "100%",
+                        flexDirection: "row",
                         gap: "4px",
                       }}
                     >
-                      {column.header}
-                      {index === 0 && (
-                        <span style={{ fontSize: "12px", color: "#666" }}>
-                          {sortColumn === column.accessorKey
-                            ? sortDirection === "asc"
-                              ? "↑"
-                              : "↓"
-                            : "↕"}
-                        </span>
-                      )}
-                    </div>
-                    {index === 0 && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          flex: 1,
+                        }}
+                      >
+                        {column.header}
+                        {index === 0 && (
+                          <span style={{ fontSize: "12px", color: "#666" }}>
+                            {sortColumn === column.accessorKey
+                              ? sortDirection === "asc"
+                                ? "↑"
+                                : "↓"
+                              : "↕"}
+                          </span>
+                        )}
+                      </div>
                       <div
                         style={{
                           display: "flex",
@@ -987,256 +1094,459 @@ export const Table: React.FC<TableProps> = ({
                           position: "relative",
                         }}
                       >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowSearchMenu(!showSearchMenu);
-                          }}
-                          style={{
-                            paddingTop: "4px",
-                            fontSize: "18px",
-                            border: "none",
-                            backgroundColor: "transparent",
-                            cursor: "pointer",
-                          }}
-                        >
-                          {searchTerm ? <FaFilterCircleXmark /> : <IoFilter />}
-                        </button>
-                        {showSearchMenu && (
-                          <div
-                            ref={searchMenuRef}
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              position: "absolute",
-                              top: "100%",
-                              right: "-60px",
-                              backgroundColor: "white",
-                              border: "1px solid #e0e0e0",
-                              borderRadius: "8px",
-                              padding: "20px",
-                              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-                              zIndex: 10000,
-                              minWidth: "320px",
-                              fontFamily: "Roboto, Arial, sans-serif",
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: "20px",
-                            }}
-                          >
-                            {/* Filter Controls - Operator and Value side by side */}
-                            <div
-                              style={{
-                                display: "flex",
-                                gap: "16px",
-                                flexShrink: 0,
+                        {index === 0 ? (
+                          // First column: text-based filter with operator
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowSearchMenu(!showSearchMenu);
                               }}
+                              style={{
+                                paddingTop: "4px",
+                                fontSize: "18px",
+                                border: "none",
+                                backgroundColor: "transparent",
+                                cursor: "pointer",
+                                color: searchTerm ? "#1976d2" : "#666",
+                              }}
+                              title="Filter"
                             >
-                              {/* Operator Selection */}
+                              {searchTerm ? (
+                                <FaFilterCircleXmark />
+                              ) : (
+                                <IoFilter />
+                              )}
+                            </button>
+                            {showSearchMenu && (
                               <div
+                                ref={searchMenuRef}
+                                onClick={(e) => e.stopPropagation()}
                                 style={{
+                                  position: "absolute",
+                                  top: "100%",
+                                  right: isNestedTable ? "-205px" : "-60px",
+                                  backgroundColor: "white",
+                                  border: "1px solid #e0e0e0",
+                                  borderRadius: "8px",
+                                  padding: "20px",
+                                  boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                                  zIndex: 10000,
+                                  minWidth: "320px",
+                                  fontFamily: "Roboto, Arial, sans-serif",
                                   display: "flex",
                                   flexDirection: "column",
-                                  gap: "4px",
-                                  flex: 1,
-                                  position: "relative",
+                                  gap: "20px",
                                 }}
                               >
-                                <label
-                                  style={{
-                                    fontSize: "14px",
-                                    fontWeight: "500",
-                                    color: "#666",
-                                    display: "block",
-                                    marginBottom: "6px",
-                                  }}
-                                >
-                                  Operator
-                                </label>
+                                {/* Filter Controls - Operator and Value side by side */}
                                 <div
                                   style={{
-                                    position: "relative",
-                                    borderBottom: "1px solid #e0e0e0",
-                                    paddingBottom: "4px",
+                                    display: "flex",
+                                    gap: "16px",
+                                    flexShrink: 0,
                                   }}
                                 >
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowOperatorDropdown(
-                                        !showOperatorDropdown
-                                      );
-                                    }}
+                                  {/* Operator Selection */}
+                                  <div
                                     style={{
-                                      width: "100%",
-                                      padding: "10px 0",
-                                      border: "none",
-                                      fontSize: "16px",
-                                      backgroundColor: "transparent",
-                                      outline: "none",
-                                      cursor: "pointer",
-                                      textAlign: "left",
                                       display: "flex",
-                                      justifyContent: "space-between",
-                                      alignItems: "center",
+                                      flexDirection: "column",
+                                      gap: "4px",
+                                      flex: 1,
+                                      position: "relative",
                                     }}
                                   >
-                                    <span>{searchType}</span>
-                                    <svg
+                                    <label
                                       style={{
-                                        width: "16",
-                                        height: "16",
-                                        transform: showOperatorDropdown
-                                          ? "rotate(180deg)"
-                                          : "rotate(0deg)",
-                                        transition: "transform 0.2s",
+                                        fontSize: "14px",
+                                        fontWeight: "500",
+                                        color: "#666",
+                                        display: "block",
+                                        marginBottom: "6px",
                                       }}
-                                      viewBox="0 0 24 24"
-                                      fill="currentColor"
                                     >
-                                      <path d="M7 10l5 5 5-5z" />
-                                    </svg>
-                                  </button>
-                                  {showOperatorDropdown && (
+                                      Operator
+                                    </label>
                                     <div
-                                      ref={operatorDropdownRef}
                                       style={{
-                                        position: "absolute",
-                                        top: "100%",
-                                        left: 0,
-                                        right: 0,
-                                        backgroundColor: "white",
-                                        border: "1px solid #e0e0e0",
-                                        borderRadius: "4px",
-                                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                                        zIndex: 10001,
-                                        marginTop: "4px",
+                                        position: "relative",
+                                        borderBottom: "1px solid #e0e0e0",
+                                        paddingBottom: "4px",
                                       }}
                                     >
-                                      <div
+                                      <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setSearchType("contains");
-                                          setShowOperatorDropdown(false);
+                                          setShowOperatorDropdown(
+                                            !showOperatorDropdown
+                                          );
                                         }}
                                         style={{
-                                          padding: "10px 14px",
+                                          width: "100%",
+                                          padding: "10px 0",
+                                          border: "none",
+                                          fontSize: "16px",
+                                          backgroundColor: "transparent",
+                                          outline: "none",
                                           cursor: "pointer",
                                           textAlign: "left",
-                                          backgroundColor:
-                                            searchType === "contains"
-                                              ? "#f5f5f5"
-                                              : "white",
-                                          fontSize: "16px",
-                                        }}
-                                        onMouseOver={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            "#f5f5f5";
-                                        }}
-                                        onMouseOut={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            searchType === "contains"
-                                              ? "#f5f5f5"
-                                              : "white";
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          alignItems: "center",
                                         }}
                                       >
-                                        contains
-                                      </div>
-                                      <div
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSearchType("equal");
-                                          setShowOperatorDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: "10px 14px",
-                                          cursor: "pointer",
-                                          backgroundColor:
-                                            searchType === "equal"
-                                              ? "#f5f5f5"
-                                              : "white",
-                                          fontSize: "16px",
-                                        }}
-                                        onMouseOver={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            "#f5f5f5";
-                                        }}
-                                        onMouseOut={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            searchType === "equal"
-                                              ? "#f5f5f5"
-                                              : "white";
-                                        }}
-                                      >
-                                        equals
-                                      </div>
+                                        <span>{searchType}</span>
+                                        <svg
+                                          style={{
+                                            width: "16",
+                                            height: "16",
+                                            transform: showOperatorDropdown
+                                              ? "rotate(180deg)"
+                                              : "rotate(0deg)",
+                                            transition: "transform 0.2s",
+                                          }}
+                                          viewBox="0 0 24 24"
+                                          fill="currentColor"
+                                        >
+                                          <path d="M7 10l5 5 5-5z" />
+                                        </svg>
+                                      </button>
+                                      {showOperatorDropdown && (
+                                        <div
+                                          ref={operatorDropdownRef}
+                                          style={{
+                                            position: "absolute",
+                                            top: "100%",
+                                            left: 0,
+                                            right: 0,
+                                            backgroundColor: "white",
+                                            border: "1px solid #e0e0e0",
+                                            borderRadius: "4px",
+                                            boxShadow:
+                                              "0 2px 8px rgba(0,0,0,0.1)",
+                                            zIndex: 10001,
+                                            marginTop: "4px",
+                                          }}
+                                        >
+                                          <div
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSearchType("contains");
+                                              setShowOperatorDropdown(false);
+                                            }}
+                                            style={{
+                                              padding: "10px 14px",
+                                              cursor: "pointer",
+                                              textAlign: "left",
+                                              backgroundColor:
+                                                searchType === "contains"
+                                                  ? "#f5f5f5"
+                                                  : "white",
+                                              fontSize: "16px",
+                                            }}
+                                            onMouseOver={(e) => {
+                                              e.currentTarget.style.backgroundColor =
+                                                "#f5f5f5";
+                                            }}
+                                            onMouseOut={(e) => {
+                                              e.currentTarget.style.backgroundColor =
+                                                searchType === "contains"
+                                                  ? "#f5f5f5"
+                                                  : "white";
+                                            }}
+                                          >
+                                            contains
+                                          </div>
+                                          <div
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSearchType("equal");
+                                              setShowOperatorDropdown(false);
+                                            }}
+                                            style={{
+                                              padding: "10px 14px",
+                                              cursor: "pointer",
+                                              backgroundColor:
+                                                searchType === "equal"
+                                                  ? "#f5f5f5"
+                                                  : "white",
+                                              fontSize: "16px",
+                                            }}
+                                            onMouseOver={(e) => {
+                                              e.currentTarget.style.backgroundColor =
+                                                "#f5f5f5";
+                                            }}
+                                            onMouseOut={(e) => {
+                                              e.currentTarget.style.backgroundColor =
+                                                searchType === "equal"
+                                                  ? "#f5f5f5"
+                                                  : "white";
+                                            }}
+                                          >
+                                            equals
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
+                                  </div>
+
+                                  {/* Value Input */}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: "4px",
+                                      flex: 2,
+                                    }}
+                                  >
+                                    <label
+                                      style={{
+                                        fontSize: "14px",
+                                        fontWeight: "500",
+                                        color: "#666",
+                                        display: "block",
+                                        marginBottom: "6px",
+                                      }}
+                                    >
+                                      Value
+                                    </label>
+                                    <div
+                                      style={{
+                                        position: "relative",
+                                        borderBottom: "1px solid #e0e0e0",
+                                        paddingBottom: "4px",
+                                      }}
+                                    >
+                                      <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          setSearchTerm(e.target.value);
+                                          setVisibleRows(20);
+                                        }}
+                                        placeholder="Filter value"
+                                        style={{
+                                          width: "100%",
+                                          padding: "10px 0",
+                                          border: "none",
+                                          fontSize: "16px",
+                                          backgroundColor: "transparent",
+                                          outline: "none",
+                                        }}
+                                        onFocus={(e) => {
+                                          e.target.parentElement!.style.borderBottomColor =
+                                            "#1976d2";
+                                        }}
+                                        onBlur={(e) => {
+                                          e.target.parentElement!.style.borderBottomColor =
+                                            "#e0e0e0";
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-
-                              {/* Value Input */}
+                            )}
+                          </>
+                        ) : (
+                          // Other columns: checkbox-based filter
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenFilterMenu(
+                                  isFilterOpen ? null : column.accessorKey
+                                );
+                              }}
+                              style={{
+                                paddingTop: "4px",
+                                fontSize: "18px",
+                                border: "none",
+                                backgroundColor: "transparent",
+                                cursor: "pointer",
+                                color: hasFilter ? "#1976d2" : "#666",
+                              }}
+                              title="Filter"
+                            >
+                              {hasFilter ? (
+                                <FaFilterCircleXmark />
+                              ) : (
+                                <IoFilter />
+                              )}
+                            </button>
+                            {isFilterOpen && (
                               <div
+                                ref={(el) => {
+                                  filterMenuRefs.current[column.accessorKey] =
+                                    el;
+                                }}
+                                onClick={(e) => e.stopPropagation()}
                                 style={{
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: "4px",
-                                  flex: 2,
+                                  position: "absolute",
+                                  top: "100%",
+                                  right: "0",
+                                  left: "auto",
+                                  backgroundColor: "white",
+                                  border: "1px solid #e0e0e0",
+                                  borderRadius: "8px",
+                                  padding: "8px",
+                                  boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                                  zIndex: 10000,
+                                  minWidth: "100px",
+                                  maxWidth: "400px",
+                                  minHeight: "auto",
+                                  maxHeight: "400px",
+                                  overflowY: "auto",
+                                  fontFamily: "Arial, sans-serif",
+                                  marginTop: "4px",
                                 }}
                               >
-                                <label
-                                  style={{
-                                    fontSize: "14px",
-                                    fontWeight: "500",
-                                    color: "#666",
-                                    display: "block",
-                                    marginBottom: "6px",
-                                  }}
-                                >
-                                  Value
-                                </label>
                                 <div
                                   style={{
-                                    position: "relative",
-                                    borderBottom: "1px solid #e0e0e0",
-                                    paddingBottom: "4px",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "8px",
+                                    maxHeight: "350px",
+                                    overflowY: "auto",
                                   }}
                                 >
-                                  <input
-                                    type="text"
-                                    value={searchTerm}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) => {
-                                      setSearchTerm(e.target.value);
-                                      setVisibleRows(20);
-                                    }}
-                                    placeholder="Filter value"
-                                    style={{
-                                      width: "100%",
-                                      padding: "10px 0",
-                                      border: "none",
-                                      fontSize: "16px",
-                                      backgroundColor: "transparent",
-                                      outline: "none",
-                                    }}
-                                    onFocus={(e) => {
-                                      e.target.parentElement!.style.borderBottomColor =
-                                        "#1976d2";
-                                    }}
-                                    onBlur={(e) => {
-                                      e.target.parentElement!.style.borderBottomColor =
-                                        "#e0e0e0";
-                                    }}
-                                  />
+                                  {uniqueValues.map((value) => {
+                                    const isChecked = filterSet.has(value);
+                                    const isSvgUrl =
+                                      index > 0 &&
+                                      value.startsWith(
+                                        "https://raw.githubusercontent.com/hypertechsa"
+                                      );
+                                    const isYes =
+                                      String(value).toLowerCase() === "yes";
+                                    const isNo =
+                                      String(value).toLowerCase() === "no";
+                                    const cellIsUrl = isUrl(value);
+
+                                    return (
+                                      <label
+                                        key={value}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "8px",
+                                          padding: "6px 8px",
+                                          cursor: "pointer",
+                                          borderRadius: "4px",
+                                          backgroundColor: isChecked
+                                            ? "#f0f7ff"
+                                            : "transparent",
+                                        }}
+                                        onMouseOver={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            isChecked ? "#e6f2ff" : "#f5f5f5";
+                                        }}
+                                        onMouseOut={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            isChecked
+                                              ? "#f0f7ff"
+                                              : "transparent";
+                                        }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => {
+                                            toggleFilterValue(
+                                              column.accessorKey,
+                                              value
+                                            );
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          style={{
+                                            cursor: "pointer",
+                                            width: "16px",
+                                            height: "16px",
+                                          }}
+                                        />
+                                        <div
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "6px",
+                                            flex: 1,
+                                            fontSize: "14px",
+                                            color: "#333",
+                                          }}
+                                        >
+                                          {isSvgUrl ? (
+                                            <SvgImageCell url={value} />
+                                          ) : isYes ? (
+                                            <span
+                                              style={{
+                                                backgroundColor: "#EAEAEA",
+                                                color: "#222222",
+                                                padding: "2px 8px",
+                                                borderRadius: "4px",
+                                                fontWeight: "500",
+                                                fontSize: "12px",
+                                              }}
+                                            >
+                                              {value}
+                                            </span>
+                                          ) : isNo ? (
+                                            <span
+                                              style={{
+                                                backgroundColor: "#22294B",
+                                                color: "#FFFFFF",
+                                                padding: "2px 8px",
+                                                borderRadius: "4px",
+                                                fontWeight: "500",
+                                                fontSize: "12px",
+                                              }}
+                                            >
+                                              {value}
+                                            </span>
+                                          ) : cellIsUrl ? (
+                                            <>
+                                              <LinkIcon size={14} />
+                                              <span
+                                                style={{
+                                                  fontSize: "12px",
+                                                  color: "#999",
+                                                  overflow: "hidden",
+                                                  textOverflow: "ellipsis",
+                                                  whiteSpace: "nowrap",
+                                                }}
+                                              >
+                                                {value.length > 30
+                                                  ? value.substring(0, 30) +
+                                                    "..."
+                                                  : value}
+                                              </span>
+                                            </>
+                                          ) : (
+                                            <span
+                                              style={{
+                                                overflow: "hidden",
+                                                textOverflow: "ellipsis",
+                                                whiteSpace: "nowrap",
+                                              }}
+                                            >
+                                              {formatValue(value)}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
                                 </div>
                               </div>
-                            </div>
-                          </div>
+                            )}
+                          </>
                         )}
                       </div>
-                    )}
-                  </div>
-                </th>
-              ))}
+                    </div>
+                  </th>
+                );
+              })}
               {/* Show expand column if has nested data/columns (root table) or nested columns (nested table) */}
               {((!isNestedTable && (nestedColumns || nestedTableColumns)) ||
                 (isNestedTable && nestedColumns)) && (
@@ -1293,7 +1603,7 @@ export const Table: React.FC<TableProps> = ({
                       >
                         {columnIndex === 0 ? (
                           // First column: show text as is
-                          cellValue
+                          formatValue(cellValue)
                         ) : cellIsUrl ? (
                           // For nested tables: if it's a URL, show clickable link icon
                           <a
@@ -1358,7 +1668,7 @@ export const Table: React.FC<TableProps> = ({
                           </span>
                         ) : (
                           // Otherwise, show text as is
-                          cellValue
+                          formatValue(cellValue)
                         )}
                       </td>
                     );
@@ -1506,9 +1816,9 @@ export const Table: React.FC<TableProps> = ({
                                           alignItems: "center",
                                           width: "100%",
                                         }}
-                                      >
+                                        >
                                         {colIndex === 0 ? (
-                                          cellValue
+                                          formatValue(cellValue)
                                         ) : isSvgUrl ? (
                                           <SvgImageCell url={cellValueStr} />
                                         ) : isYes ? (
@@ -1550,7 +1860,7 @@ export const Table: React.FC<TableProps> = ({
                                             {cellValue}
                                           </span>
                                         ) : (
-                                          cellValue
+                                          formatValue(cellValue)
                                         )}
                                       </div>
                                     </div>

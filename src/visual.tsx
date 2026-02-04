@@ -152,10 +152,23 @@ export class Visual implements IVisual {
     }
 
     // Transform main data
-    const columns = mainCategories.map((category) => ({
-      header: category.source.displayName,
-      accessorKey: category.source.displayName,
-    }));
+    // Deduplicate columns by accessorKey to prevent duplicate columns
+    const seenAccessorKeys = new Set<string>();
+    const columns = mainCategories
+      .map((category) => ({
+        header: category.source.displayName,
+        accessorKey: category.source.displayName,
+      }))
+      .filter((column) => {
+        if (seenAccessorKeys.has(column.accessorKey)) {
+          console.warn(
+            `Duplicate column detected and removed: ${column.accessorKey}`
+          );
+          return false;
+        }
+        seenAccessorKeys.add(column.accessorKey);
+        return true;
+      });
 
     // Secondary guard: if columns are missing or first column title is empty, show error and exit
     if (
