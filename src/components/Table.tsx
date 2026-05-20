@@ -1018,7 +1018,7 @@ export const Table: React.FC<TableProps> = ({
             style={{
               position: "sticky",
               top: 0,
-              zIndex: 10,
+              zIndex: isNestedTable ? 1 : 20,
               backgroundColor: "#F6F6F6",
             }}
           >
