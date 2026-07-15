@@ -304,7 +304,7 @@ const SvgImageCell: React.FC<{ url: string }> = ({ url }) => {
       }
       svgElement.setAttribute(
         "style",
-        "max-width: 100%; max-height: 24px; width: auto; height: auto;"
+        "max-width: 100%; max-height: 24px; width: auto; height: auto;",
       );
 
       const modifiedSvg = new XMLSerializer().serializeToString(svgElement);
@@ -469,7 +469,7 @@ const NestedTable: React.FC<{
                   const isSvgUrl =
                     colIndex > 0 &&
                     cellValueStr.startsWith(
-                      "https://raw.githubusercontent.com/hypertechsa"
+                      "https://raw.githubusercontent.com/hypertechsa",
                     );
 
                   return (
@@ -585,7 +585,9 @@ const NestedTable: React.FC<{
                 width: hasNestedColumns ? "60%" : "100%",
                 flexShrink: 0,
                 maxWidth: hasNestedColumns ? "60%" : "100%",
-                overflow: "hidden",
+                maxHeight: "450px",
+                overflowY: "auto",
+                overflowX: "hidden",
                 boxSizing: "border-box",
               }}
             >
@@ -633,7 +635,7 @@ export const Table: React.FC<TableProps> = ({
   // First column filter (text-based with operator)
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [searchType, setSearchType] = useState<"contains" | "equal">(
-    "contains"
+    "contains",
   );
   const [showSearchMenu, setShowSearchMenu] = useState(false);
   const [showOperatorDropdown, setShowOperatorDropdown] = useState(false);
@@ -643,7 +645,7 @@ export const Table: React.FC<TableProps> = ({
   }>({});
   const [openFilterMenu, setOpenFilterMenu] = useState<string | null>(null);
   const filterMenuRefs = useRef<{ [columnId: string]: HTMLDivElement | null }>(
-    {}
+    {},
   );
   const searchMenuRef = useRef<HTMLDivElement>(null);
   const operatorDropdownRef = useRef<HTMLDivElement>(null);
@@ -721,7 +723,7 @@ export const Table: React.FC<TableProps> = ({
         const newSelectedRows = new Set<string>();
         const mainCategories =
           dataView.categorical?.categories?.filter(
-            (category) => category.source.roles?.category
+            (category) => category.source.roles?.category,
           ) || [];
 
         if (mainCategories.length > 0) {
@@ -734,7 +736,7 @@ export const Table: React.FC<TableProps> = ({
 
             if (
               selections.some(
-                (sel) => sel.toString() === selectionId.toString()
+                (sel) => sel.toString() === selectionId.toString(),
               )
             ) {
               newSelectedRows.add(getRowIdentifier(row));
@@ -791,7 +793,7 @@ export const Table: React.FC<TableProps> = ({
       if (selectionManager && dataView && host) {
         const mainCategories =
           dataView.categorical?.categories?.filter(
-            (category) => category.source.roles?.category
+            (category) => category.source.roles?.category,
           ) || [];
 
         if (mainCategories.length > 0) {
@@ -943,7 +945,8 @@ export const Table: React.FC<TableProps> = ({
     if (data.length > 0) {
       const firstRowId = getRowIdentifier(data[0]);
       const hasMatchingSelections = Array.from(selectedRows).some(
-        (selectedId) => data.some((row) => getRowIdentifier(row) === selectedId)
+        (selectedId) =>
+          data.some((row) => getRowIdentifier(row) === selectedId),
       );
 
       // If none of the current selections match the new data, clear all selections
@@ -1026,7 +1029,7 @@ export const Table: React.FC<TableProps> = ({
               {columns.map((column, index) => {
                 const uniqueValues = getUniqueValuesForColumn(
                   column.accessorKey,
-                  index
+                  index,
                 );
                 const isFilterOpen = openFilterMenu === column.accessorKey;
                 const hasFilter = hasActiveFilter(column.accessorKey, index);
@@ -1179,7 +1182,7 @@ export const Table: React.FC<TableProps> = ({
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setShowOperatorDropdown(
-                                            !showOperatorDropdown
+                                            !showOperatorDropdown,
                                           );
                                         }}
                                         style={{
@@ -1357,7 +1360,7 @@ export const Table: React.FC<TableProps> = ({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setOpenFilterMenu(
-                                  isFilterOpen ? null : column.accessorKey
+                                  isFilterOpen ? null : column.accessorKey,
                                 );
                               }}
                               style={{
@@ -1417,7 +1420,7 @@ export const Table: React.FC<TableProps> = ({
                                     const isSvgUrl =
                                       index > 0 &&
                                       value.startsWith(
-                                        "https://raw.githubusercontent.com/hypertechsa"
+                                        "https://raw.githubusercontent.com/hypertechsa",
                                       );
                                     const isYes =
                                       String(value).toLowerCase() === "yes";
@@ -1456,7 +1459,7 @@ export const Table: React.FC<TableProps> = ({
                                           onChange={() => {
                                             toggleFilterValue(
                                               column.accessorKey,
-                                              value
+                                              value,
                                             );
                                           }}
                                           onClick={(e) => e.stopPropagation()}
@@ -1579,7 +1582,7 @@ export const Table: React.FC<TableProps> = ({
                     const isSvgUrl =
                       columnIndex > 0 &&
                       cellValueStr.startsWith(
-                        "https://raw.githubusercontent.com/hypertechsa"
+                        "https://raw.githubusercontent.com/hypertechsa",
                       );
 
                     // Check if the value is a URL (for nested tables)
@@ -1783,7 +1786,7 @@ export const Table: React.FC<TableProps> = ({
                                   const isSvgUrl =
                                     colIndex > 0 &&
                                     cellValueStr.startsWith(
-                                      "https://raw.githubusercontent.com/hypertechsa"
+                                      "https://raw.githubusercontent.com/hypertechsa",
                                     );
 
                                   return (
@@ -1816,7 +1819,7 @@ export const Table: React.FC<TableProps> = ({
                                           alignItems: "center",
                                           width: "100%",
                                         }}
-                                        >
+                                      >
                                         {colIndex === 0 ? (
                                           formatValue(cellValue)
                                         ) : isSvgUrl ? (
@@ -1865,7 +1868,7 @@ export const Table: React.FC<TableProps> = ({
                                       </div>
                                     </div>
                                   );
-                                })
+                                }),
                             );
                           })()}
                         </div>
